@@ -62,15 +62,15 @@ The app is designed for local/self-hosted setups and can run in pure stream mode
 
 ```mermaid
 flowchart LR
-    CAM[RTSP Camera] --> VS[VideoStream Thread]
-    VS --> LF[(state.latest_frame)]
-    LF --> YW[YOLO Worker Thread]
-    YW --> LR[(state.latest_results)]
-    LR --> RENDER[draw_custom_esp]
-    RENDER --> MJPEG[/video_feed MJPEG Response]
+    CAM["RTSP Camera"] --> VS["VideoStream Thread"]
+    VS --> LF["state.latest_frame"]
+    LF --> YW["YOLO Worker Thread"]
+    YW --> LR["state.latest_results"]
+    LR --> RENDER["draw_custom_esp"]
+    RENDER --> MJPEG["GET /video_feed (MJPEG Response)"]
 
-    UI[Browser Dashboard] --> API[/status /toggle_yolo /update_esp /set_model]
-    API --> STATE[(state module)]
+    UI["Browser Dashboard"] --> API["/status, /toggle_yolo, /update_esp, /set_model"]
+    API --> STATE["state module"]
     STATE --> YW
     STATE --> RENDER
 ```
@@ -79,13 +79,13 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-    BR[Browser] --> FL[Flask App]
-    FL --> IDX[/]
-    FL --> VFEED[/video_feed]
-    FL --> ST[/status]
-    FL --> TGL[/toggle_yolo]
-    FL --> ESP[/update_esp]
-    FL --> MOD[/set_model]
+    BR["Browser"] --> FL["Flask App"]
+    FL --> IDX["GET /"]
+    FL --> VFEED["GET /video_feed"]
+    FL --> ST["GET /status"]
+    FL --> TGL["POST /toggle_yolo"]
+    FL --> ESP["POST /update_esp"]
+    FL --> MOD["POST /set_model"]
 ```
 
 ## Repository Layout
