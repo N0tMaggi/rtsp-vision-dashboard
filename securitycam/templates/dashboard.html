@@ -1,0 +1,1021 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SecurityCam Dashboard</title>
+  <style>
+    :root {
+      --bg: #070b12;
+      --panel: #121a26;
+      --panel-2: #1a2433;
+      --line: #2f3f57;
+      --text: #e6edf7;
+      --muted: #9db0c9;
+      --ok: #56d364;
+      --warn: #ff7b72;
+      --radius: 12px;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; }
+
+    body {
+      font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(ellipse at top, #152036 0%, var(--bg) 58%),
+        linear-gradient(rgba(86,211,100,.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(86,211,100,.02) 1px, transparent 1px);
+      background-size: auto, 42px 42px, 42px 42px;
+      overflow: hidden;
+    }
+
+    #desktop {
+      position: relative;
+      width: 100vw;
+      height: calc(100vh - 56px);
+      overflow: hidden;
+    }
+
+    .window {
+      position: absolute;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: linear-gradient(180deg, var(--panel-2), var(--panel));
+      box-shadow: 0 22px 56px rgba(0,0,0,.65);
+      display: flex;
+      flex-direction: column;
+      min-width: 320px;
+      min-height: 180px;
+      resize: both;
+      overflow: hidden;
+    }
+
+    .window-header {
+      height: 42px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      cursor: move;
+      background: linear-gradient(90deg, rgba(26,36,51,.95), rgba(18,26,38,.95));
+      user-select: none;
+    }
+
+    .window-title {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: .02em;
+    }
+
+    .title-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--ok);
+      box-shadow: 0 0 10px rgba(86,211,100,.6);
+    }
+
+    .window-body {
+      flex: 1;
+      overflow: auto;
+      padding: 14px;
+    }
+
+    .stream-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      height: 100%;
+    }
+
+    .video-area {
+      position: relative;
+      flex: 1;
+      min-height: 220px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      overflow: hidden;
+      background: radial-gradient(ellipse at 30% 30%, #111a2b, #070b12);
+    }
+
+    #stream {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+      background: #04070d;
+    }
+
+    #stream-placeholder {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      font-size: 13px;
+      letter-spacing: .03em;
+      background: linear-gradient(180deg, rgba(7,11,18,.2), rgba(7,11,18,.65));
+      pointer-events: none;
+    }
+
+    .stream-badge {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      padding: 4px 10px;
+      font-size: 11px;
+      backdrop-filter: blur(6px);
+      background: rgba(15,22,34,.85);
+    }
+
+    .stream-badge.active {
+      border-color: rgba(86,211,100,.65);
+      color: #b5efc1;
+      background: rgba(17,54,28,.75);
+    }
+
+    .stream-badge.unavail {
+      border-color: rgba(255,123,114,.65);
+      color: #ffd1cc;
+      background: rgba(63,27,26,.75);
+    }
+
+    .fps-badge {
+      position: absolute;
+      right: 10px;
+      bottom: 10px;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      padding: 3px 8px;
+      font-size: 11px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: var(--muted);
+      background: rgba(15,22,34,.85);
+    }
+
+    .stream-controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .btn,
+    .select,
+    input[type="range"] {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #0f1622;
+      color: var(--text);
+      font-size: 13px;
+      padding: 10px 12px;
+      outline: none;
+    }
+
+    .btn { cursor: pointer; font-weight: 600; }
+
+    .btn.start {
+      background: #11361c;
+      border-color: #1e6f35;
+      color: #a8e8b5;
+    }
+
+    .btn.stop {
+      background: #3f1b1a;
+      border-color: #863937;
+      color: #ffd1cc;
+    }
+
+    .btn.unavail {
+      background: #3f1b1a;
+      border-color: #863937;
+      color: #ffd1cc;
+      opacity: .5;
+      cursor: not-allowed;
+    }
+
+    .section {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      background: rgba(15,22,34,.65);
+    }
+
+    .section + .section { margin-top: 10px; }
+
+    .section-title {
+      margin: 0 0 10px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .11em;
+      color: var(--ok);
+      font-weight: 700;
+    }
+
+    .toggle-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+
+    .toggle-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(10,16,25,.8);
+      padding: 8px 10px;
+      font-size: 12px;
+      gap: 8px;
+      min-height: 36px;
+    }
+
+    .toggle-item span { color: var(--text); }
+
+    .toggle-switch {
+      width: 34px;
+      height: 18px;
+      border-radius: 999px;
+      background: #2b374b;
+      position: relative;
+      border: 1px solid #3c4b63;
+      transition: .2s;
+    }
+
+    .toggle-switch::after {
+      content: "";
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #fff;
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      transition: .2s;
+    }
+
+    .toggle-item input { display: none; }
+
+    .toggle-item input:checked + .toggle-switch {
+      background: rgba(86,211,100,.72);
+      border-color: rgba(86,211,100,.9);
+    }
+
+    .toggle-item input:checked + .toggle-switch::after {
+      transform: translateX(16px);
+    }
+
+    .slider-row { margin-top: 8px; }
+
+    .slider-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 5px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .slider-value {
+      border-radius: 6px;
+      border: 1px solid rgba(86,211,100,.35);
+      padding: 2px 6px;
+      color: #b9f0c4;
+      font-size: 11px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: rgba(86,211,100,.08);
+    }
+
+    .slider-row input[type="range"] {
+      height: 6px;
+      padding: 0;
+      accent-color: #56d364;
+      background: transparent;
+      border: none;
+    }
+
+    .inline-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: center;
+      margin-top: 8px;
+    }
+
+    .inline-row .label {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .select.small { width: 140px; padding: 7px 8px; }
+
+    .color-grid {
+      margin-top: 8px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .color-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 7px 8px;
+      background: rgba(10,16,25,.8);
+      font-size: 11px;
+      color: var(--muted);
+      gap: 8px;
+    }
+
+    .color-item input[type="color"] {
+      width: 30px;
+      height: 20px;
+      padding: 0;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+
+    .stat {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(10,16,25,.78);
+      padding: 9px;
+    }
+
+    .stat .k {
+      font-size: 10px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      margin-bottom: 4px;
+    }
+
+    .stat .v {
+      font-size: 14px;
+      font-weight: 600;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: var(--text);
+      word-break: break-word;
+    }
+
+    .classes-wrap {
+      margin-top: 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 8px;
+      background: rgba(10,16,25,.7);
+    }
+
+    .classes-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      min-height: 24px;
+    }
+
+    .chip {
+      border: 1px solid rgba(86,211,100,.4);
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 11px;
+      color: #bff2c8;
+      background: rgba(86,211,100,.12);
+    }
+
+    .taskbar {
+      height: 56px;
+      border-top: 1px solid rgba(47,63,87,.6);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+      background: linear-gradient(180deg, rgba(9,14,22,.82), rgba(7,11,18,.97));
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .task-pill {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 5px 10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(15,22,34,.75);
+    }
+
+    .task-pill .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--ok);
+      box-shadow: 0 0 8px rgba(86,211,100,.65);
+    }
+
+    @media (max-width: 1200px) {
+      #win-stream { left: 12px !important; top: 12px !important; width: calc(100vw - 24px) !important; height: 45vh !important; }
+      #win-controls { left: 12px !important; top: calc(45vh + 20px) !important; width: calc(50vw - 18px) !important; height: calc(55vh - 88px) !important; }
+      #win-stats { left: calc(50vw + 6px) !important; top: calc(45vh + 20px) !important; width: calc(50vw - 18px) !important; height: calc(55vh - 88px) !important; }
+    }
+
+    @media (max-width: 900px) {
+      body { overflow: auto; }
+      #desktop { height: auto; min-height: calc(100vh - 56px); overflow: visible; display: grid; gap: 10px; padding: 10px; }
+      .window { position: static !important; width: 100% !important; height: auto !important; min-height: 240px; resize: none; }
+      .toggle-grid { grid-template-columns: 1fr; }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <div id="desktop">
+    <section class="window" id="win-stream" style="left:24px;top:18px;width:56vw;height:62vh;z-index:3;">
+      <header class="window-header">
+        <div class="window-title"><span class="title-dot"></span>Live Stream</div>
+        <div id="camera-label" style="font-size:11px;color:var(--muted)">Camera: {{ camera_ip or 'n/a' }}</div>
+      </header>
+      <div class="window-body">
+        <div class="stream-wrap">
+          <div class="video-area">
+            <img id="stream" alt="Live Stream">
+            <div id="stream-placeholder">Connecting to camera stream...</div>
+            <div id="stream-badge" class="stream-badge"><span style="width:7px;height:7px;border-radius:50%;background:currentColor"></span><span id="stream-badge-text">Standby</span></div>
+            <div id="fps-badge" class="fps-badge">FPS: -</div>
+          </div>
+          <div class="stream-controls">
+            <button id="btn-toggle-yolo" class="btn start" type="button">Start AI</button>
+            <select id="model-select" class="select"></select>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="window" id="win-controls" style="left:calc(56vw + 36px);top:18px;width:40vw;height:62vh;z-index:2;">
+      <header class="window-header">
+        <div class="window-title"><span class="title-dot"></span>Controls</div>
+      </header>
+      <div class="window-body">
+        <div class="section">
+          <h3 class="section-title">Visual</h3>
+          <div id="visual-toggle-grid" class="toggle-grid"></div>
+          <div class="inline-row">
+            <span class="label">Box style</span>
+            <select id="sel-box-style" class="select small">
+              <option value="full">Full</option>
+              <option value="corner">Corner</option>
+              <option value="3d">3D</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="section">
+          <h3 class="section-title">Prediction</h3>
+          <div id="prediction-toggle-grid" class="toggle-grid"></div>
+        </div>
+
+        <div class="section">
+          <h3 class="section-title">Style</h3>
+          <div id="style-toggle-grid" class="toggle-grid"></div>
+          <div id="slider-group"></div>
+          <div id="color-grid" class="color-grid"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="window" id="win-stats" style="left:24px;top:calc(62vh + 30px);width:96vw;height:calc(38vh - 86px);z-index:1;">
+      <header class="window-header">
+        <div class="window-title"><span class="title-dot"></span>Runtime Stats</div>
+      </header>
+      <div class="window-body">
+        <div class="stats-grid">
+          <div class="stat"><div class="k">Resolution</div><div class="v" id="stat-resolution">-</div></div>
+          <div class="stat"><div class="k">FPS</div><div class="v" id="stat-fps">-</div></div>
+          <div class="stat"><div class="k">Inference FPS</div><div class="v" id="stat-infer-fps">-</div></div>
+          <div class="stat"><div class="k">Infer Time</div><div class="v" id="stat-infer-ms">-</div></div>
+          <div class="stat"><div class="k">Device</div><div class="v" id="stat-device">-</div></div>
+          <div class="stat"><div class="k">Detections</div><div class="v" id="stat-detections">-</div></div>
+          <div class="stat"><div class="k">Faces</div><div class="v" id="stat-faces">-</div></div>
+          <div class="stat"><div class="k">GPU Name</div><div class="v" id="stat-gpu-name">-</div></div>
+          <div class="stat"><div class="k">GPU Util</div><div class="v" id="stat-gpu-util">-</div></div>
+          <div class="stat"><div class="k">GPU Memory</div><div class="v" id="stat-gpu-mem">-</div></div>
+          <div class="stat"><div class="k">YOLO Model</div><div class="v" id="stat-model">-</div></div>
+          <div class="stat"><div class="k">YOLO Status</div><div class="v" id="stat-yolo-status">-</div></div>
+        </div>
+        <div class="classes-wrap">
+          <div class="classes-title">Detected Classes</div>
+          <div id="classes-chips" class="chips"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer class="taskbar">
+    <span>SecurityCam Desktop UI</span>
+    <span class="task-pill"><span class="dot"></span><span id="clock">--:--:--</span></span>
+  </footer>
+
+  <script>
+    const VISUAL_TOGGLES = [
+      ["boxes", "Boxes"],
+      ["names", "Names"],
+      ["conf", "Confidence"],
+      ["skeleton", "Skeleton"],
+      ["head", "Head"],
+      ["snaplines", "Snaplines"],
+      ["center_dot", "Crosshair"],
+      ["distance", "Distance"],
+      ["face_boxes", "Face Boxes"],
+      ["face_zoom", "Face Zoom"],
+      ["hand_skeleton", "Hand Skeleton"],
+      ["chams", "Chams"],
+      ["face_blur", "Face Blur"],
+      ["fill_box", "Box Fill"],
+      ["class_colors", "Class Colors"],
+      ["person_only", "Person Only"],
+      ["highlight_center", "Center Highlight"],
+      ["thermal", "Thermal"]
+    ];
+
+    const PREDICTION_TOGGLES = [
+      ["tracking", "Tracking"],
+      ["tracers", "Tracers"],
+      ["velocity", "Velocity"],
+      ["prediction", "Prediction"]
+    ];
+
+    const STYLE_TOGGLES = [
+      ["gay_mode", "RGB Mode"]
+    ];
+
+    const SLIDERS = [
+      ["confidence_threshold", "Confidence Threshold", 0.05, 1.0, 0.05, (v) => `${Math.round(v * 100)}%`],
+      ["line_thickness", "Line Thickness", 1, 6, 1, (v) => `${Math.round(v)}px`],
+      ["face_zoom_scale", "Face Zoom Scale", 1.0, 4.0, 0.25, (v) => `${Number(v).toFixed(2)}x`],
+      ["chams_opacity", "Chams Opacity", 0.0, 1.0, 0.05, (v) => `${Math.round(v * 100)}%`],
+      ["face_blur_strength", "Face Blur Strength", 3, 35, 2, (v) => `${Math.round(v)}`]
+    ];
+
+    const COLORS = [
+      ["color_primary", "Primary"],
+      ["color_secondary", "Secondary"],
+      ["color_boxes", "Boxes"],
+      ["color_skeleton", "Skeleton"],
+      ["color_head", "Head"],
+      ["color_tracers", "Tracers"],
+      ["color_velocity", "Velocity"],
+      ["color_prediction", "Prediction"],
+      ["color_face", "Face"],
+      ["color_hand", "Hand"],
+      ["color_text", "Text"],
+      ["chams_color", "Chams"]
+    ];
+
+    const state = {
+      yoloEnabled: false,
+      yoloAvailable: false,
+      selectedModel: "",
+      availableModels: [],
+      settings: {
+        boxes: true,
+        box_style: "corner",
+        line_thickness: 2,
+        fill_box: false,
+        chams: false,
+        chams_opacity: 0.35,
+        chams_color: "#00ffff",
+        class_colors: false,
+        person_only: false,
+        highlight_center: false,
+        thermal: false,
+        names: true,
+        conf: true,
+        skeleton: true,
+        head: false,
+        snaplines: false,
+        center_dot: false,
+        tracking: false,
+        distance: false,
+        tracers: false,
+        prediction: false,
+        velocity: false,
+        gay_mode: false,
+        face_boxes: false,
+        face_zoom: false,
+        face_blur: false,
+        face_blur_strength: 15,
+        face_zoom_scale: 2.0,
+        hand_skeleton: false,
+        confidence_threshold: 0.35,
+        color_primary: "#00ff00",
+        color_secondary: "#ff00ff",
+        color_boxes: "#00ff00",
+        color_skeleton: "#00ff00",
+        color_head: "#ff0000",
+        color_tracers: "#00ffff",
+        color_velocity: "#00ffff",
+        color_prediction: "#ff00ff",
+        color_face: "#ffc864",
+        color_hand: "#00ff00",
+        color_text: "#00ff00"
+      },
+      stats: {
+        fps: 0,
+        inference_fps: 0,
+        last_infer_ms: 0,
+        resolution: "-",
+        num_detections: 0,
+        faces: 0,
+        classes: [],
+        device: "-",
+        gpu: { name: "-", util: 0, mem_used: 0, mem_total: 0 }
+      }
+    };
+
+    function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+    function updateClock() {
+      document.getElementById("clock").textContent = new Date().toLocaleTimeString("en-GB", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
+      });
+    }
+
+    function createToggle(containerId, key, label) {
+      const container = document.getElementById(containerId);
+      const id = `tgl-${key}`;
+      const item = document.createElement("label");
+      item.className = "toggle-item";
+      item.innerHTML = `
+        <span>${label}</span>
+        <span style="display:inline-flex;align-items:center;gap:8px;">
+          <input id="${id}" type="checkbox">
+          <span class="toggle-switch"></span>
+        </span>
+      `;
+      const input = item.querySelector("input");
+      input.checked = Boolean(state.settings[key]);
+      input.addEventListener("change", async () => {
+        state.settings[key] = input.checked;
+        await postEspPatch({ [key]: state.settings[key] });
+      });
+      container.appendChild(item);
+    }
+
+    function createSlider(key, label, min, max, step, formatter) {
+      const group = document.getElementById("slider-group");
+      const row = document.createElement("div");
+      row.className = "slider-row";
+      const valueId = `val-${key}`;
+      row.innerHTML = `
+        <div class="slider-top">
+          <span>${label}</span>
+          <span class="slider-value" id="${valueId}"></span>
+        </div>
+        <input id="rng-${key}" type="range" min="${min}" max="${max}" step="${step}">
+      `;
+
+      const input = row.querySelector("input");
+      const valueEl = row.querySelector(`#${valueId}`);
+
+      const updateLabel = () => {
+        const v = parseFloat(input.value);
+        valueEl.textContent = formatter(v);
+      };
+
+      input.value = state.settings[key];
+      updateLabel();
+
+      input.addEventListener("input", updateLabel);
+      input.addEventListener("change", async () => {
+        let value = parseFloat(input.value);
+        if (key === "line_thickness" || key === "face_blur_strength") value = Math.round(value);
+        state.settings[key] = value;
+        await postEspPatch({ [key]: value });
+      });
+
+      group.appendChild(row);
+    }
+
+    function createColorPicker(key, label) {
+      const grid = document.getElementById("color-grid");
+      const item = document.createElement("label");
+      item.className = "color-item";
+      item.innerHTML = `<span>${label}</span><input id="col-${key}" type="color">`;
+      const input = item.querySelector("input");
+      input.value = String(state.settings[key] || "#00ff00");
+      input.addEventListener("input", async () => {
+        state.settings[key] = input.value;
+        await postEspPatch({ [key]: input.value });
+      });
+      grid.appendChild(item);
+    }
+
+    function buildControls() {
+      VISUAL_TOGGLES.forEach(([key, label]) => createToggle("visual-toggle-grid", key, label));
+      PREDICTION_TOGGLES.forEach(([key, label]) => createToggle("prediction-toggle-grid", key, label));
+      STYLE_TOGGLES.forEach(([key, label]) => createToggle("style-toggle-grid", key, label));
+      SLIDERS.forEach(([key, label, min, max, step, formatter]) => createSlider(key, label, min, max, step, formatter));
+      COLORS.forEach(([key, label]) => createColorPicker(key, label));
+
+      const boxStyle = document.getElementById("sel-box-style");
+      boxStyle.value = state.settings.box_style;
+      boxStyle.addEventListener("change", async () => {
+        state.settings.box_style = boxStyle.value;
+        await postEspPatch({ box_style: boxStyle.value });
+      });
+    }
+
+    async function postEspPatch(patch) {
+      try {
+        await fetch("/update_esp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch)
+        });
+      } catch (_) {}
+    }
+
+    async function toggleYolo() {
+      try {
+        await fetch("/toggle_yolo", { method: "POST" });
+        await readStatus();
+      } catch (_) {}
+    }
+
+    async function setModel(modelName) {
+      try {
+        await fetch("/set_model", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model_name: modelName })
+        });
+        await readStatus();
+      } catch (_) {}
+    }
+
+    function renderStreamStatus() {
+      const badge = document.getElementById("stream-badge");
+      const badgeText = document.getElementById("stream-badge-text");
+      const btn = document.getElementById("btn-toggle-yolo");
+
+      if (!state.yoloAvailable) {
+        badge.className = "stream-badge unavail";
+        badgeText.textContent = "Unavailable";
+        btn.className = "btn unavail";
+        btn.textContent = "AI Unavailable";
+        btn.disabled = true;
+        return;
+      }
+
+      btn.disabled = false;
+      if (state.yoloEnabled) {
+        badge.className = "stream-badge active";
+        badgeText.textContent = "AI Active";
+        btn.className = "btn stop";
+        btn.textContent = "Stop AI";
+      } else {
+        badge.className = "stream-badge";
+        badgeText.textContent = "Standby";
+        btn.className = "btn start";
+        btn.textContent = "Start AI";
+      }
+    }
+
+    function renderStats() {
+      document.getElementById("stat-resolution").textContent = state.stats.resolution || "-";
+      document.getElementById("stat-fps").textContent = state.stats.fps ? state.stats.fps.toFixed(1) : "-";
+      document.getElementById("stat-infer-fps").textContent = state.stats.inference_fps ? state.stats.inference_fps.toFixed(1) : "-";
+      document.getElementById("stat-infer-ms").textContent = state.stats.last_infer_ms ? `${state.stats.last_infer_ms.toFixed(1)} ms` : "-";
+      document.getElementById("stat-device").textContent = state.stats.device || "-";
+      document.getElementById("stat-detections").textContent = String(state.stats.num_detections ?? 0);
+      document.getElementById("stat-faces").textContent = String(state.stats.faces ?? 0);
+      document.getElementById("stat-gpu-name").textContent = state.stats.gpu.name || "-";
+      document.getElementById("stat-gpu-util").textContent = state.stats.gpu.util ? `${state.stats.gpu.util}%` : "-";
+      document.getElementById("stat-gpu-mem").textContent = state.stats.gpu.mem_total ? `${state.stats.gpu.mem_used} / ${state.stats.gpu.mem_total} MB` : "-";
+      document.getElementById("stat-model").textContent = state.selectedModel || "-";
+      document.getElementById("stat-yolo-status").textContent = state.yoloAvailable ? (state.yoloEnabled ? "active" : "standby") : "unavailable";
+      document.getElementById("fps-badge").textContent = `FPS: ${state.stats.fps ? state.stats.fps.toFixed(1) : "-"}`;
+
+      const chips = document.getElementById("classes-chips");
+      chips.innerHTML = "";
+      if (Array.isArray(state.stats.classes) && state.stats.classes.length > 0) {
+        for (const cls of state.stats.classes) {
+          const chip = document.createElement("span");
+          chip.className = "chip";
+          chip.textContent = cls;
+          chips.appendChild(chip);
+        }
+      } else {
+        const chip = document.createElement("span");
+        chip.className = "chip";
+        chip.style.opacity = "0.65";
+        chip.textContent = "none";
+        chips.appendChild(chip);
+      }
+    }
+
+    function syncControlsFromState() {
+      const activeTag = document.activeElement && document.activeElement.tagName;
+      if (activeTag === "INPUT" || activeTag === "SELECT") {
+        return;
+      }
+
+      for (const [key] of [...VISUAL_TOGGLES, ...PREDICTION_TOGGLES, ...STYLE_TOGGLES]) {
+        const el = document.getElementById(`tgl-${key}`);
+        if (el) el.checked = Boolean(state.settings[key]);
+      }
+
+      for (const [key] of SLIDERS) {
+        const el = document.getElementById(`rng-${key}`);
+        if (!el) continue;
+        const value = state.settings[key];
+        if (typeof value !== "undefined") {
+          el.value = value;
+          el.dispatchEvent(new Event("input"));
+        }
+      }
+
+      for (const [key] of COLORS) {
+        const el = document.getElementById(`col-${key}`);
+        if (el && state.settings[key]) {
+          el.value = state.settings[key];
+        }
+      }
+
+      const boxStyle = document.getElementById("sel-box-style");
+      if (boxStyle && state.settings.box_style) {
+        boxStyle.value = state.settings.box_style;
+      }
+    }
+
+    function syncModels() {
+      const sel = document.getElementById("model-select");
+      const selected = state.selectedModel;
+
+      if (!Array.isArray(state.availableModels)) {
+        state.availableModels = [];
+      }
+
+      const currentOptions = Array.from(sel.options).map((o) => o.value);
+      const target = state.availableModels;
+      const changed = currentOptions.length !== target.length || currentOptions.some((v, i) => v !== target[i]);
+
+      if (changed) {
+        sel.innerHTML = "";
+        for (const model of target) {
+          const opt = document.createElement("option");
+          opt.value = model;
+          opt.textContent = model;
+          sel.appendChild(opt);
+        }
+      }
+
+      if (selected) {
+        sel.value = selected;
+      }
+    }
+
+    async function readStatus() {
+      try {
+        const res = await fetch("/status");
+        const data = await res.json();
+
+        state.yoloEnabled = Boolean(data.yolo_enabled);
+        state.yoloAvailable = Boolean(data.yolo_available);
+
+        if (Array.isArray(data.available_models)) {
+          state.availableModels = data.available_models;
+        }
+
+        if (data.yolo_model) {
+          state.selectedModel = data.yolo_model;
+        } else if (!state.selectedModel && state.availableModels.length > 0) {
+          state.selectedModel = state.availableModels[0];
+        }
+
+        state.stats.fps = Number(data.fps || 0);
+        state.stats.inference_fps = Number(data.inference_fps || 0);
+        state.stats.last_infer_ms = Number(data.last_infer_ms || 0);
+        state.stats.resolution = data.resolution || "-";
+        state.stats.num_detections = Number(data.num_detections || 0);
+        state.stats.faces = Number(data.faces || 0);
+        state.stats.classes = Array.isArray(data.classes) ? data.classes : [];
+        state.stats.device = data.device || "-";
+        state.stats.gpu = data.gpu || { name: "-", util: 0, mem_used: 0, mem_total: 0 };
+
+        if (data.esp_settings && typeof data.esp_settings === "object") {
+          Object.assign(state.settings, data.esp_settings);
+        }
+
+        syncModels();
+        syncControlsFromState();
+        renderStreamStatus();
+        renderStats();
+      } catch (_) {}
+    }
+
+    function initStreamElement() {
+      const stream = document.getElementById("stream");
+      const placeholder = document.getElementById("stream-placeholder");
+
+      stream.addEventListener("load", () => {
+        placeholder.style.display = "none";
+      });
+
+      stream.addEventListener("error", () => {
+        placeholder.style.display = "grid";
+        placeholder.textContent = "Stream unavailable. Check camera or RTSP settings.";
+      });
+
+      stream.src = `{{ url_for('video_feed') }}?v=${Date.now()}`;
+    }
+
+    function makeDraggable(windowId) {
+      const win = document.getElementById(windowId);
+      const header = win.querySelector(".window-header");
+      if (!win || !header) return;
+
+      let drag = false;
+      let sx = 0;
+      let sy = 0;
+      let ox = 0;
+      let oy = 0;
+
+      header.addEventListener("mousedown", (e) => {
+        if (window.innerWidth <= 900) return;
+        drag = true;
+        sx = e.clientX;
+        sy = e.clientY;
+        ox = win.offsetLeft;
+        oy = win.offsetTop;
+        win.style.zIndex = String(Number(win.style.zIndex || 1) + 10);
+      });
+
+      document.addEventListener("mousemove", (e) => {
+        if (!drag) return;
+        const dx = e.clientX - sx;
+        const dy = e.clientY - sy;
+        const desktop = document.getElementById("desktop");
+        const maxX = Math.max(0, desktop.clientWidth - win.offsetWidth);
+        const maxY = Math.max(0, desktop.clientHeight - win.offsetHeight);
+        win.style.left = `${clamp(ox + dx, 0, maxX)}px`;
+        win.style.top = `${clamp(oy + dy, 0, maxY)}px`;
+      });
+
+      document.addEventListener("mouseup", () => {
+        drag = false;
+      });
+    }
+
+    function bindEvents() {
+      document.getElementById("btn-toggle-yolo").addEventListener("click", toggleYolo);
+      document.getElementById("model-select").addEventListener("change", (e) => setModel(e.target.value));
+      makeDraggable("win-stream");
+      makeDraggable("win-controls");
+      makeDraggable("win-stats");
+    }
+
+    function init() {
+      buildControls();
+      bindEvents();
+      initStreamElement();
+      updateClock();
+      setInterval(updateClock, 1000);
+      readStatus();
+      setInterval(readStatus, 1000);
+    }
+
+    document.addEventListener("DOMContentLoaded", init);
+  </script>
+</body>
+</html>
