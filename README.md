@@ -35,6 +35,7 @@ SecurityCam is a modular RTSP camera dashboard built with Flask, OpenCV, and YOL
 
 SecurityCam focuses on practical, real-time camera monitoring with optional AI inference:
 - RTSP stream served directly to browser as MJPEG
+- multi-camera workspace with closable camera tabs
 - YOLOv8 detection and pose support
 - full overlay customization (visual, prediction, face, hand, style)
 - runtime model switching and runtime settings updates via HTTP API
@@ -44,9 +45,11 @@ The app is designed for local/self-hosted setups and can run in pure stream mode
 ## Core Features
 
 - Live stream endpoint: `GET /video_feed`
+- Camera-specific stream endpoint: `GET /video_feed/<camera_id>`
 - Optional YOLO inference with runtime toggle: `POST /toggle_yolo`
 - Runtime model switch: `POST /set_model`
 - Live status and telemetry endpoint: `GET /status`
+- Camera-specific API endpoints under `/api/cameras/<camera_id>/...`
 - Rich ESP overlay system with many feature groups:
   - box styles and line tuning
   - skeleton/head/snaplines/crosshair
@@ -276,10 +279,13 @@ Configuration is loaded from environment variables, optionally from `.env` via `
 
 | Variable | Required | Default | Description |
 |---|---|---:|---|
+| `SECURITYCAM_CAMERAS` | no | empty | Semicolon-separated camera list: `id|Label|ip|username|password|stream_path` |
 | `SECURITYCAM_CAMERA_IP` | yes | empty | Camera IP / host |
 | `SECURITYCAM_CAMERA_USERNAME` | yes | empty | RTSP username |
 | `SECURITYCAM_CAMERA_PASSWORD` | yes | empty | RTSP password |
 | `SECURITYCAM_CAMERA_STREAM_PATH` | no | `stream1` | Stream path (`stream1`, `stream2`, etc.) |
+
+If `SECURITYCAM_CAMERAS` is set, the legacy single-camera variables are used only as fallback defaults.
 
 ### App runtime settings
 
@@ -327,8 +333,14 @@ Returns dashboard HTML.
 ### `GET /video_feed`
 Returns MJPEG stream.
 
+### `GET /video_feed/<camera_id>`
+Returns MJPEG stream for the selected camera.
+
 ### `GET /status`
 Returns live runtime telemetry and settings.
+
+### `GET /api/cameras/<camera_id>/status`
+Returns runtime telemetry and settings for the selected camera.
 
 Typical fields:
 - `fps`
@@ -356,6 +368,9 @@ Response example:
 { "yolo_enabled": true }
 ```
 
+### `POST /api/cameras/<camera_id>/toggle_yolo`
+Toggles YOLO state for the selected camera.
+
 ### `POST /set_model`
 Request:
 
@@ -367,8 +382,14 @@ Possible responses:
 - `200`: model switched or already selected
 - `400`: invalid model
 
+### `POST /api/cameras/<camera_id>/set_model`
+Switches the model for the selected camera.
+
 ### `POST /update_esp`
 Accepts partial ESP setting payload and updates runtime settings.
+
+### `POST /api/cameras/<camera_id>/update_esp`
+Accepts partial ESP setting payload and updates runtime settings for the selected camera.
 
 ## ESP Features and Controls
 

@@ -115,17 +115,17 @@ def ensure_face_cascade():
     return state.face_cascade
 
 
-def ensure_hand_detector():
+def ensure_hand_detector(camera_state):
     """
     Lazy load MediaPipe Hands for hand skeletons.
     Returns detector or None if not available.
     """
-    if state.hand_detector is not None:
-        return state.hand_detector
+    if camera_state.hand_detector is not None:
+        return camera_state.hand_detector
     try:
         import mediapipe as mp
         state.mp_hands = mp.solutions.hands
-        state.hand_detector = state.mp_hands.Hands(
+        camera_state.hand_detector = state.mp_hands.Hands(
             static_image_mode=False,
             max_num_hands=2,
             model_complexity=0,
@@ -133,11 +133,11 @@ def ensure_hand_detector():
             min_tracking_confidence=0.4,
         )
     except Exception:
-        state.hand_detector = None
-    return state.hand_detector
+        camera_state.hand_detector = None
+    return camera_state.hand_detector
 
 
-def get_yolo_model():
+def get_yolo_model(camera_state):
     """
     Lazy-load YOLO model.
     Note: device is controlled at prediction time via `device=DEVICE`,
@@ -145,13 +145,13 @@ def get_yolo_model():
     """
     if not state.YOLO_AVAILABLE:
         return None
-    if state.yolo_model is None:
-        source_path = config.model_path(state.yolo_model_name)
-        model_source = str(source_path) if source_path.exists() else state.yolo_model_name
+    if camera_state.yolo_model is None:
+        source_path = config.model_path(camera_state.yolo_model_name)
+        model_source = str(source_path) if source_path.exists() else camera_state.yolo_model_name
         print(f"[YOLO] Loading model {model_source} (DEVICE={state.DEVICE})...")
-        state.yolo_model = state.YOLO(model_source)
-        print("[YOLO] Model ready:", state.yolo_model_name)
-    return state.yolo_model
+        camera_state.yolo_model = state.YOLO(model_source)
+        print("[YOLO] Model ready:", camera_state.yolo_model_name)
+    return camera_state.yolo_model
 
 
 def get_gpu_snapshot():

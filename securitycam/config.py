@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import re
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import quote
 
@@ -166,4 +168,78 @@ def build_rtsp_url(ip: str, username: str, password: str, stream_path: str) -> s
     return f"rtsp://{encoded_user}:{encoded_pass}@{ip}:554/{stream_path}"
 
 
-RTSP_URL = build_rtsp_url(CAMERA_IP, USERNAME, PASSWORD, STREAM_PATH)
+@dataclass(frozen=True)
+class CameraConfig:
+    id: str
+    label: str
+    ip: str
+    username: str
+    password: str
+    stream_path: str
+    rtsp_url: str
+
+
+def _slugify_camera_id(raw: str, fallback: str) -> str:
+    value = re.sub(r"[^a-z0-9]+", "-", raw.strip().lower()).strip("-")
+    return value or fallback
+
+
+def _camera_config(camera_id: str, label: str, ip: str, username: str, password: str, stream_path: str) -> CameraConfig:
+    return CameraConfig(
+        id=camera_id,
+        label=label,
+        ip=ip,
+        username=username,
+        password=password,
+        stream_path=stream_path,
+        rtsp_url=build_rtsp_url(ip, username, password, stream_path),
+    )
+
+
+def _parse_multi_camera_env(raw: str) -> tuple[CameraConfig, ...]:
+    cameras: list[CameraConfig] = []
+    seen_ids: set[str] = set()
+
+    for index, chunk in enumerate(raw.split(";"), start=1):
+        entry = chunk.strip()
+        if not entry:
+            continue
+
+        parts = [part.strip() for part in entry.split("|")]
+        if len(parts) < 5:
+            continue
+
+        camera_id = _slugify_camera_id(parts[0], f"camera-{index}")
+        label = parts[1] or f"Camera {index}"
+        ip = parts[2]
+        username = parts[3]
+        password = parts[4]
+        stream_path = parts[5] if len(parts) > 5 and parts[5] else STREAM_PATH
+
+        if camera_id in seen_ids:
+            continue
+
+        cameras.append(_camera_config(camera_id, label, ip, username, password, stream_path))
+        seen_ids.add(camera_id)
+
+    return tuple(cameras)
+
+
+def _legacy_camera_config() -> CameraConfig:
+    camera_id = "camera-1"
+    label = CAMERA_IP or "Camera 1"
+    return _camera_config(camera_id, label, CAMERA_IP, USERNAME, PASSWORD, STREAM_PATH)
+
+
+CAMERAS = _parse_multi_camera_env(os.getenv("SECURITYCAM_CAMERAS", "")) or (_legacy_camera_config(),)
+DEFAULT_CAMERA_ID = CAMERAS[0].id
+
+
+def get_camera(camera_id: str) -> CameraConfig | None:
+    for camera in CAMERAS:
+        if camera.id == camera_id:
+            return camera
+    return None
+
+
+RTSP_URL = CAMERAS[0].rtsp_url
