@@ -184,7 +184,7 @@ Optional:
 ### 1) Clone and enter project
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/N0tMaggi/rtsp-vision-dashboard.git
 cd securitycam
 ```
 
