@@ -451,6 +451,73 @@ The dashboard includes the complete advanced ESP feature set.
 - chams opacity
 - face blur strength
 
+## Alarms and Events
+
+Everything lives in `securitycam/alerts/` (Flask blueprint) and `securitycam/esp/alerts_render.py`.
+Alarms are evaluated in the render path, so they run while the camera is being viewed and detection is on.
+
+- **Zone rules**: arm any zone in the ESP menu under *Alarms*. Optional class filter (e.g. only `person`),
+  minimum dwell time (seconds a target's center must stay inside) and a schedule (always, or a time window
+  such as 22:00-06:00). A triggered zone pulses red with `ALARM` in its pill.
+- **Tripwires**: press `T` (or *Draw Tripwire*) and drag a line. The ESP draws the line, an arrow for the
+  "in" direction (a→b rotated 90° clockwise) and `↑ in  ↓ out` counters. Crossings are detected from the
+  motion model's per-track center history (stable track ids; turn on Tracking for best results). A tripwire can
+  raise an alarm for both directions or one, optionally only for some classes. *Flip* swaps the direction.
+- **Abandoned objects**: with *Abandoned Objects* on, bags/suitcases/umbrellas/laptops
+  (`SECURITYCAM_ABANDON_CLASSES`) that appear and stay put for *Abandoned After* seconds are marked
+  `NEW SINCE 14:32` and create an event. Objects already visible in the first seconds after detection starts
+  are treated as background.
+- **Events**: each alarm stores `data/events/<camera>/<YYYYMMDD-HHMMSS-mmm>/` with `meta.json`,
+  `snapshot.jpg`, `thumb.jpg` and a clip from ~10 s before to ~10 s after the trigger. Clips come from a
+  bounded per-camera ring buffer of the rendered (overlay) JPEG frames. The encoder is probed once:
+  WebM/VP8, then MP4/H.264 (both play in Chrome); if neither works, the clip is a JPEG sequence
+  (`frames/00000.jpg ...`) that the UI plays as an animation. Old events are removed by count/age.
+- **Notifications**: ntfy, Telegram and Discord (all optional, with snapshot). Sent from a background
+  queue with a cooldown per rule; errors are logged without URLs or tokens.
+- **Snapshots**: `S` saves the current rendered frame to `data/snapshots/` and downloads it in the browser.
+- **UI**: the siren button in the header opens the event timeline (`E`), shows an unread badge and pulses
+  red while an alarm is active; new alarms pop up as toasts at the top.
+
+Rules and tripwires persist in `data/alerts.json` (atomic writes). `data/` is git-ignored.
+
+### Alarm settings (.env)
+
+| Variable | Default | Description |
+|---|---:|---|
+| `SECURITYCAM_DATA_DIR` | `./data` | Root for `alerts.json`, `events/`, `snapshots/` |
+| `SECURITYCAM_CLIP_PRE_S` / `SECURITYCAM_CLIP_POST_S` | `10` / `10` | Clip seconds before / after the trigger |
+| `SECURITYCAM_CLIP_FPS` | `10` | Frame rate of the pre-roll buffer and clips |
+| `SECURITYCAM_CLIP_BUFFER_MB` | `96` | Max memory of the per-camera frame buffer |
+| `SECURITYCAM_CLIP_MAX_WIDTH` | `1280` | Clips are downscaled to this width |
+| `SECURITYCAM_CLIP_FORMAT` | `auto` | `auto`, `webm`, `mp4` or `jpeg` |
+| `SECURITYCAM_EVENTS_MAX_COUNT` | `300` | Keep at most this many events (all cameras) |
+| `SECURITYCAM_EVENTS_MAX_AGE_DAYS` | `14` | Delete older events (`0` = keep) |
+| `SECURITYCAM_ALARM_COOLDOWN_S` | `30` | Min. seconds between events of the same rule/tripwire |
+| `SECURITYCAM_ALARM_HOLD_S` | `4` | How long the red alarm style stays after the condition ends |
+| `SECURITYCAM_NOTIFY_COOLDOWN_S` | `60` | Min. seconds between notifications of the same rule/tripwire |
+| `SECURITYCAM_NTFY_URL` / `SECURITYCAM_NTFY_TOKEN` | empty | ntfy topic URL (e.g. `https://ntfy.sh/my-secret-topic`), optional access token |
+| `SECURITYCAM_TELEGRAM_BOT_TOKEN` / `SECURITYCAM_TELEGRAM_CHAT_ID` | empty | Telegram bot (photo + caption) |
+| `SECURITYCAM_DISCORD_WEBHOOK_URL` | empty | Discord webhook (message + image) |
+| `SECURITYCAM_ABANDON_CLASSES` | `backpack,handbag,suitcase,umbrella,laptop` | COCO classes watched as abandoned objects |
+
+New ESP setting keys: `alarms` (evaluate rules), `tripwires` (draw tripwires), `abandoned`, `abandoned_seconds` (5-600).
+
+### Alarm API
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` / `PATCH` | `/api/cameras/<id>/alerts` | Rules, tripwires (with live counters), channel status / set `abandoned_notify` |
+| `PUT` / `DELETE` | `/api/cameras/<id>/zones/<zone_id>/rule` | Create/update or remove a zone rule (`enabled`, `classes`, `min_dwell_s`, `schedule`, `notify`) |
+| `GET` / `POST` | `/api/cameras/<id>/tripwires` | List / create (`{"a": [x, y], "b": [x, y]}`, normalized) |
+| `PATCH` / `DELETE` | `/api/cameras/<id>/tripwires/<tid>` | Update (`label`, `trigger`, `alarm`, `classes`, `color`, `notify`, `flip`) / delete |
+| `POST` | `/api/cameras/<id>/tripwires/<tid>/reset` | Reset counters |
+| `GET` | `/api/events?camera=&since=&limit=` | Events (newest first) and currently active alarms |
+| `GET` / `DELETE` | `/api/events/<camera>/<event_id>` | Event metadata / delete event |
+| `GET` | `/api/events/<camera>/<event_id>/{thumb.jpg,snapshot.jpg,clip}` | Files (clip supports HTTP ranges) |
+| `GET` | `/api/events/<camera>/<event_id>/frames/<n>.jpg` | JPEG-sequence clip frames |
+| `POST` | `/api/cameras/<id>/snapshot` | Save + return the current rendered frame |
+| `POST` | `/api/notify/test` | Send a test notification (`{"camera": "<id>"}`) |
+
 ## Model Management
 
 Available startup/runtime model names include:
@@ -570,7 +637,6 @@ Recommended deployment hardening:
 ## Roadmap
 
 - optional dashboard authentication
-- optional event snapshots/recording triggers
 - richer multi-camera support
 - deeper API contract validation for `/update_esp`
 - automated tests for endpoints and runtime config
