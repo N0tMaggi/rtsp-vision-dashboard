@@ -21,3 +21,6 @@ models/
 
 # Claude Code local state (agent worktrees etc.)
 .claude/
+
+# Saved dashboard state (presets, ESP settings, zones)
+data/
