@@ -4,6 +4,8 @@ export interface Camera {
   ip: string
   stream_path: string
   has_stream: boolean
+  /** "rtsp" for configured cameras; "file" / "url" for video-analysis sources. */
+  source_kind?: "rtsp" | "file" | "url"
 }
 
 export interface CamerasResponse {

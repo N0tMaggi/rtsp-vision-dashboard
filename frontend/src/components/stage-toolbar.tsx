@@ -33,7 +33,7 @@ export function StageToolbar(p: Props) {
 
   return (
     <div
-      className="absolute bottom-[80px] left-9 z-10 flex flex-col items-start gap-2"
+      className="absolute bottom-[calc(80px+var(--stage-bottom-extra,0px))] left-9 z-10 flex flex-col items-start gap-2 transition-[bottom] duration-500"
       onPointerDown={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
     >

@@ -27,6 +27,8 @@ interface Props {
   rightInset?: number
   /** Right-click on the picture (normalized frame coords); e.g. PTZ "center here". */
   onAimAt?: (u: number, v: number, clientX: number, clientY: number) => void
+  /** Space kept free at the bottom (e.g. for the video playback bar), in px. */
+  bottomInset?: number
 }
 
 // Free area between header (~72px) and telemetry bar (~44px); the video is fitted inside.
@@ -35,9 +37,9 @@ const INSET = { top: 80, bottom: 64, left: 24, right: 24 }
 const ease = [0.22, 1, 0.36, 1] as const
 const DRAG_THRESHOLD_PX = 4
 
-function containRect(cw: number, ch: number, vw: number, vh: number, right: number) {
+function containRect(cw: number, ch: number, vw: number, vh: number, right: number, bottom = INSET.bottom) {
   const aw = Math.max(0, cw - INSET.left - right)
-  const ah = Math.max(0, ch - INSET.top - INSET.bottom)
+  const ah = Math.max(0, ch - INSET.top - bottom)
   if (!vw || !vh || !aw || !ah) return { left: INSET.left, top: INSET.top, width: aw, height: ah }
   const k = Math.min(aw / vw, ah / vh)
   const width = vw * k
@@ -104,7 +106,11 @@ export function Stage(props: Props) {
 
   const frameW = natural.w || targets?.frame.w || 0
   const frameH = natural.h || targets?.frame.h || 0
-  const rect = useMemo(() => containRect(box.w, box.h, frameW, frameH, rightInset), [box.w, box.h, frameW, frameH, rightInset])
+  const bottomInset = Math.max(INSET.bottom, props.bottomInset ?? INSET.bottom)
+  const rect = useMemo(
+    () => containRect(box.w, box.h, frameW, frameH, rightInset, bottomInset),
+    [box.w, box.h, frameW, frameH, rightInset, bottomInset],
+  )
   const view = useViewTransform(rect.width, rect.height)
   // First real layout appears instantly; later changes (menu open/close, resize) glide.
   const laidOut = useRef(false)
