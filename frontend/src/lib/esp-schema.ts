@@ -32,7 +32,7 @@ export const VISUAL_TOGGLES: ToggleDef[] = [
 export const FACE_TOGGLES: ToggleDef[] = [
   { key: "face_boxes", label: "Face Boxes" },
   { key: "face_zoom", label: "Face Zoom" },
-  { key: "face_blur", label: "Gesichter verbergen" },
+  { key: "face_blur", label: "Face Blur" },
   { key: "hand_skeleton", label: "Hand Skeleton" },
 ]
 
@@ -45,7 +45,7 @@ export const TRACKING_TOGGLES: ToggleDef[] = [
 
 export const STYLE_TOGGLES: ToggleDef[] = [
   { key: "glow", label: "Glow" },
-  { key: "label_background", label: "Label-Hintergrund" },
+  { key: "label_background", label: "Label Background" },
   { key: "rgb_mode", label: "RGB Mode" },
 ]
 
@@ -56,9 +56,9 @@ export const SLIDERS: SliderDef[] = [
   { key: "line_thickness", label: "Line", min: 1, max: 6, step: 1, format: (v) => `${Math.round(v)}px` },
   { key: "chams_opacity", label: "Chams Opacity", min: 0, max: 1, step: 0.05, format: pct },
   { key: "face_zoom_scale", label: "Face Zoom", min: 1, max: 4, step: 0.25, format: (v) => `${v.toFixed(2)}x` },
-  { key: "face_blur_strength", label: "Unkenntlichkeit", min: 1, max: 100, step: 1, format: (v) => `${Math.round(v)}%` },
-  { key: "smoothing", label: "Glättung", min: 0, max: 1, step: 0.05, format: pct },
-  { key: "jpeg_quality", label: "Bildqualität", min: 30, max: 95, step: 5, format: (v) => `${Math.round(v)}` },
+  { key: "face_blur_strength", label: "Blur Strength", min: 1, max: 100, step: 1, format: (v) => `${Math.round(v)}%` },
+  { key: "smoothing", label: "Smoothing", min: 0, max: 1, step: 0.05, format: pct },
+  { key: "jpeg_quality", label: "JPEG Quality", min: 30, max: 95, step: 5, format: (v) => `${Math.round(v)}` },
 ]
 
 export const COLORS: ToggleDef[] = [

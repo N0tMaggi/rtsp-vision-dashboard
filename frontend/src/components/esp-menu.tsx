@@ -209,7 +209,7 @@ function CategoryBody({
         <>
           <ToggleList items={FACE_TOGGLES} settings={settings} onUpdate={onUpdate} />
           <div className="mt-4 border-t border-border pt-4">
-            <p className="mb-2 text-sm text-muted-foreground">Gesichter verbergen als</p>
+            <p className="mb-2 text-sm text-muted-foreground">Face Blur Mode</p>
             <SegmentPicker
               label="Art der Unkenntlichmachung"
               id="face-blur-mode"
@@ -386,7 +386,7 @@ function ColorRow({ def, value, onUpdate }: { def: ToggleDef; value: string; onU
 function ZonesPanel({ settings, onUpdate, zones }: { settings: EspSettings; onUpdate: Update; zones: ZoneActions }) {
   return (
     <>
-      <ToggleList items={[{ key: "zones", label: "Zonen anzeigen" }]} settings={settings} onUpdate={onUpdate} />
+      <ToggleList items={[{ key: "zones", label: "Show Zones" }]} settings={settings} onUpdate={onUpdate} />
       <button
         type="button"
         onClick={zones.onDraw}
