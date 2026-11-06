@@ -62,6 +62,8 @@ def create_app() -> Flask:
     app = Flask(__name__, static_folder=str(package_dir / "static"))
 
     frontend_dir = package_dir / "static" / "app"
+    from .ops_api import blueprint as ops_blueprint  # persistence, presets, grid overview, PTZ
+    app.register_blueprint(ops_blueprint)
 
     @app.route("/")
     def index():
@@ -91,6 +93,10 @@ def create_app() -> Flask:
     @app.route("/video_feed/<camera_id>")
     def video_feed(camera_id: str):
         _get_camera_state_or_404(camera_id)
+        width = request.args.get("w", type=int)
+        if width:  # downscaled grid tile, rendered once per size and shared
+            from .scaled_feed import gen_frames_scaled
+            return Response(gen_frames_scaled(camera_id, width), mimetype="multipart/x-mixed-replace; boundary=frame")
         return Response(
             gen_frames(camera_id),
             mimetype="multipart/x-mixed-replace; boundary=frame",

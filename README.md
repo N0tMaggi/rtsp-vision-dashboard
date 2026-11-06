@@ -50,6 +50,10 @@ The app is designed for local/self-hosted setups and can run in pure stream mode
 - Runtime model switch: `POST /set_model`
 - Live status and telemetry endpoint: `GET /status`
 - Camera-specific API endpoints under `/api/cameras/<camera_id>/...`
+- Settings, zones, presets and schedules survive restarts (`data/state.json`), with JSON export/import
+- Presets (Day / Night / Away / Minimal and your own) with weekday schedules
+- Multi-camera grid view with downscaled streams
+- Optional real PTZ over ONVIF (pad, arrow keys, right-click to center, camera positions)
 - Rich ESP overlay system with many feature groups:
   - box styles and line tuning
   - skeleton/head/snaplines/crosshair
@@ -329,6 +333,42 @@ If `SECURITYCAM_CAMERAS` is set, the legacy single-camera variables are used onl
 | `SECURITYCAM_AUTO_INSTALL_DEPS` | no | `false` | Try auto-install if imports fail |
 | `SECURITYCAM_TORCH_CUDA_INDEX_URL` | no | PyTorch nightly index | Index URL used for auto-install |
 
+### Saved state, presets and schedules
+
+ESP settings, detection on/off, YOLO model and zones of every camera, presets, schedules and PTZ calibration are saved to `data/state.json` (git-ignored) about a second after each change and restored on startup. Writes are atomic (temp file + rename). If the file is unreadable it is moved to `data/state.json.bak` and the app starts with defaults. Export/import (with a preview of the changes) is in the ESP menu under **Backup**.
+
+Presets live in the **Presets** menu category: the built-ins *Day*, *Night*, *Away* and *Minimal* change only the overlay toggles that matter for them; *Save current settings* stores a full snapshot for one camera or all cameras. Schedules apply a preset at a local time on chosen weekdays (two disabled examples ship: Night at 22:00, Day at 07:00).
+
+| Variable | Required | Default | Description |
+|---|---|---:|---|
+| `SECURITYCAM_DATA_DIR` | no | `data/` | Folder for `state.json` |
+| `SECURITYCAM_SAVE_DEBOUNCE` | no | `1.0` | Seconds between the last change and the write (0..60) |
+
+New features can persist their own configuration with `persistence.register_section(name, dump_fn, load_fn, validate_fn)` (see `securitycam/persistence.py`).
+
+### Grid view
+
+With two or more cameras the header shows a single/grid toggle (`G`). The grid uses 2 columns up to 4 cameras and 3 above; tiles stream a downscaled feed (`?w=`) instead of full-resolution video. `1`–`9` open a camera, a click or `Enter` on a tile animates it into the single view.
+
+### PTZ (optional, ONVIF)
+
+Real pan/tilt/zoom needs the optional package:
+
+```bash
+pip install onvif-zeep
+```
+
+Without it the **PTZ** menu category only shows this hint. ONVIF logs in with the camera account from the camera config (Tapo: enable the camera account in the Tapo app; ONVIF runs on port 2020). Turn on **PTZ Mode** to get an on-screen pad, arrow keys (Page Up/Down zoom if supported) and right-click "center this point". The login only happens when you open the PTZ panel or turn PTZ Mode on; failed logins back off from 60 s up to 30 min (network errors 5 s up to 2 min), and PTZ waits while the RTSP login of the same camera is failing, so a wrong password cannot lock the account. A held move stops automatically if the browser stops refreshing it.
+
+| Variable | Required | Default | Description |
+|---|---|---:|---|
+| `SECURITYCAM_PTZ` | no | `true` | Master switch |
+| `SECURITYCAM_ONVIF_PORT` | no | `2020` | ONVIF port for all cameras |
+| `SECURITYCAM_ONVIF_PORTS` | no | – | Per-camera ports, `camera-1:2020,garage:8000` |
+| `SECURITYCAM_ONVIF_TIMEOUT` | no | `5` | Seconds per ONVIF call |
+| `SECURITYCAM_PTZ_FOV_H` / `_FOV_V` | no | `100` / `56` | Field of view (degrees) for right-click centering; tune in the UI |
+| `SECURITYCAM_PTZ_PAN_RANGE` / `_TILT_RANGE` | no | `360` / `114` | Mechanical range that ONVIF's generic -1..1 relative move spans |
+
 ## API Reference
 
 ### `GET /`
@@ -394,6 +434,31 @@ Accepts partial ESP setting payload and updates runtime settings.
 
 ### `POST /api/cameras/<camera_id>/update_esp`
 Accepts partial ESP setting payload and updates runtime settings for the selected camera.
+
+### Operation & persistence endpoints
+
+All bodies are JSON (`Content-Type: application/json`); non-JSON bodies are rejected with `415`.
+
+| Method & path | Purpose |
+|---|---|
+| `GET /video_feed/<camera_id>?w=640` | Downscaled MJPEG for grid tiles. Width snaps to 320/480/640/960/1280; each size is encoded once per frame and shared by all clients. |
+| `GET /api/overview` | fps, detections, live flag and last preset of every camera (grid HUD). |
+| `GET /api/presets?camera_id=<id>` | Presets visible for a camera (global + bound), schedules with `next_run`, `last_applied`. |
+| `POST /api/presets` | `{name, camera_id: null\|id, from_camera}` saves the current settings of `from_camera`. |
+| `PATCH /api/presets/<id>` | `{name?, camera_id?, capture_from?}` rename / rescope / overwrite with current settings. |
+| `DELETE /api/presets/<id>` | Deletes the preset and its schedules. |
+| `POST /api/presets/<id>/apply` | `{camera_id: id\|null}`; `null` applies a global preset to all cameras. |
+| `POST /api/schedules`, `PATCH`/`DELETE /api/schedules/<id>` | `{preset_id, time: "HH:MM", days: [0..6] (0 = Monday), camera_id, enabled}` |
+| `GET /api/settings/export` | Download of all saved configuration (`securitycam-settings-*.json`). |
+| `POST /api/settings/import?dry_run=1` | Validates an export and returns the diff without applying; without `dry_run` it applies. |
+| `GET /api/settings/state` | Where state is saved, last save time, last error. |
+| `GET /api/cameras/<id>/ptz` | PTZ availability, connection state, capabilities, camera presets, calibration. Never logs in. |
+| `POST /api/cameras/<id>/ptz/connect` | Connects over ONVIF (refused with `429` while backing off). |
+| `POST /api/cameras/<id>/ptz/move` / `stop` | `{x, y, zoom}` in -1..1 continuous move; re-send within 1.5 s or the server stops the camera. |
+| `POST /api/cameras/<id>/ptz/center` | `{u, v}` normalized frame point; relative move that centers it. |
+| `POST /api/cameras/<id>/ptz/home` | Home position (if supported). |
+| `POST /api/cameras/<id>/ptz/presets`, `POST .../presets/<token>/goto`, `DELETE .../presets/<token>` | Camera-side PTZ positions. |
+| `PATCH /api/cameras/<id>/ptz/settings` | `{fov_h, fov_v, pan_range, tilt_range, speed}` calibration (persisted). |
 
 ## ESP Features and Controls
 

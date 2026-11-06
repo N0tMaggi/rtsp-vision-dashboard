@@ -25,6 +25,8 @@ interface Props {
   onTripwireDrawn?: (a: [number, number], b: [number, number]) => void
   /** Space kept free on the right (e.g. for the open ESP menu), in px. */
   rightInset?: number
+  /** Right-click on the picture (normalized frame coords); e.g. PTZ "center here". */
+  onAimAt?: (u: number, v: number, clientX: number, clientY: number) => void
 }
 
 // Free area between header (~72px) and telemetry bar (~44px); the video is fitted inside.
@@ -305,6 +307,13 @@ export function Stage(props: Props) {
       onPointerUp={onPointerUp}
       onPointerLeave={() => gesture.current.kind === "none" && setHoverId(null)}
       onDoubleClick={onDoubleClick}
+      onContextMenu={(e) => {
+        if (!props.onAimAt || !loaded) return
+        const [u, v] = toNormalized(...local(e))
+        if (!inside(u, v)) return
+        e.preventDefault()
+        props.onAimAt(u, v, e.clientX, e.clientY)
+      }}
     >
       <motion.div
         className="absolute overflow-hidden rounded-md"
