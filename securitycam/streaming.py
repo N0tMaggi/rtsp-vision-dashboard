@@ -318,46 +318,60 @@ def _redact_url(url: str) -> str:
     return re.sub(r"(//[^:/@]*:)[^@/]*@", r"\1***@", url)
 
 
-def _acquire_feed(camera_state):
-    with _feeds_lock:
-        feed = _feeds.get(camera_state.camera_id)
-        if feed is not None and not feed.stream.stopped and feed.stream.grabbed:
-            feed.clients += 1
-            return feed
-        if feed is not None:
-            feed.stream.release()
-            _feeds.pop(camera_state.camera_id, None)
+_connect_locks: dict[str, threading.Lock] = {}
 
-        source = camera_state.source     # video file / URL source (securitycam/sources.py) or None
-        is_file = source is not None and camera_state.source_kind == "file"
-        failures, retry_after = _connect_failures.get(camera_state.camera_id, (0, 0.0))
-        wait = retry_after - time.monotonic()
-        if wait > 0 and not is_file:
-            camera_state.stream_error = (
-                f"Camera refused the connection. Next attempt in {wait:.0f} s - "
-                "check user/password of the camera account in .env."
-            )
-            return None
+
+def _connect_lock(camera_id: str) -> threading.Lock:
+    with _feeds_lock:
+        return _connect_locks.setdefault(camera_id, threading.Lock())
+
+
+def _acquire_feed(camera_state):
+    # One connect per camera at a time; the slow open itself runs outside
+    # _feeds_lock so an unreachable camera never blocks the other cameras
+    # (or a video source) from starting, closing or being released.
+    with _connect_lock(camera_state.camera_id):
+        with _feeds_lock:
+            feed = _feeds.get(camera_state.camera_id)
+            if feed is not None and not feed.stream.stopped and feed.stream.grabbed:
+                feed.clients += 1
+                return feed
+            if feed is not None:
+                feed.stream.release()
+                _feeds.pop(camera_state.camera_id, None)
+
+            source = camera_state.source     # video file / URL source (securitycam/sources.py) or None
+            is_file = source is not None and camera_state.source_kind == "file"
+            failures, retry_after = _connect_failures.get(camera_state.camera_id, (0, 0.0))
+            wait = retry_after - time.monotonic()
+            if wait > 0 and not is_file:
+                camera_state.stream_error = (
+                    f"Camera refused the connection. Next attempt in {wait:.0f} s - "
+                    "check user/password of the camera account in .env."
+                )
+                return None
 
         print(f"[Camera] Connecting to {camera_state.camera_id}: {_redact_url(camera_state.rtsp_url)}")
         with camera_state.frame_lock:
             camera_state.latest_frame = None
         stream = source.open_stream(camera_state) if source is not None else VideoStream(camera_state.rtsp_url, camera_state)
-        if not stream.grabbed:
+        if not stream.grabbed or camera_state.closed:
             stream.release()
-            if is_file:
+            if is_file or camera_state.closed:
                 return None
-            failures += 1
-            delay = min(_CONNECT_BACKOFF_MAX_S, _CONNECT_BACKOFF_MIN_S * 2 ** (failures - 1))
-            _connect_failures[camera_state.camera_id] = (failures, time.monotonic() + delay)
+            with _feeds_lock:
+                failures = _connect_failures.get(camera_state.camera_id, (0, 0.0))[0] + 1
+                delay = min(_CONNECT_BACKOFF_MAX_S, _CONNECT_BACKOFF_MIN_S * 2 ** (failures - 1))
+                _connect_failures[camera_state.camera_id] = (failures, time.monotonic() + delay)
             print(f"[Camera] Connect to {camera_state.camera_id} failed ({failures}x), retrying in {delay:.0f} s.")
             return None
-        _connect_failures.pop(camera_state.camera_id, None)
         stream.start()
-        feed = CameraFeed(camera_state, stream)
-        feed.clients = 1
-        _feeds[camera_state.camera_id] = feed
-        return feed
+        with _feeds_lock:
+            _connect_failures.pop(camera_state.camera_id, None)
+            feed = CameraFeed(camera_state, stream)
+            feed.clients = 1
+            _feeds[camera_state.camera_id] = feed
+            return feed
 
 
 def _release_feed(camera_state, feed):

@@ -298,6 +298,36 @@ class SourceTests(LibraryCase):
         self.addCleanup(streaming._release_feed, cs, feed)
         return feed
 
+    def test_unreachable_camera_does_not_block_video(self):
+        _, cid, cs = self.open_clip()
+        cs.yolo_enabled = False
+        started = threading.Event()
+
+        class SlowStream:
+            def __init__(self, src, camera_state):
+                started.set()
+                time.sleep(2.5)                       # a camera that takes ages to time out
+                self.grabbed = False
+
+            def release(self):
+                pass
+
+        front = state.get_camera_state("front")
+        streaming._connect_failures.pop("front", None)
+        with mock.patch.object(streaming, "VideoStream", SlowStream):
+            t = threading.Thread(target=streaming._acquire_feed, args=(front,), daemon=True)
+            t.start()
+            started.wait(2)
+            t0 = time.perf_counter()
+            feed = streaming._acquire_feed(cs)
+            self.assertIsNotNone(feed)
+            self.assertLess(time.perf_counter() - t0, 1.5)
+            t1 = time.perf_counter()
+            self.assertTrue(sources.close(cid))       # closing doesn't wait for the camera either
+            self.assertLess(time.perf_counter() - t1, 1.5)
+            t.join(5)
+        streaming._connect_failures.pop("front", None)
+
     def test_realtime_pacing(self):
         _, _, cs = self.open_clip()
         cs.yolo_enabled = False
