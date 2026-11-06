@@ -14,7 +14,7 @@ import time
 
 import cv2
 
-from . import config, deps, recognition, state
+from . import capture_env, config, deps, recognition, state
 from .alerts.clips import record_frame
 from .esp import draw_custom_esp
 
@@ -192,7 +192,8 @@ class VideoStream:
 
     def __init__(self, src, camera_state):
         self.camera_state = camera_state
-        self.stream = cv2.VideoCapture(src)
+        with capture_env.shared():   # never sees a URL source's temporary FFmpeg options
+            self.stream = cv2.VideoCapture(src)
         self.stream.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         self.lock = threading.Lock()

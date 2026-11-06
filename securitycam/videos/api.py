@@ -13,7 +13,6 @@ from werkzeug.formparser import parse_form_data
 
 from .. import sources, state
 from .library import (
-    ALLOW_URLS,
     ALLOWED_EXTENSIONS,
     LIBRARY,
     MAX_UPLOAD_BYTES,
@@ -100,7 +99,7 @@ def list_videos():
         "max_total_bytes": LIBRARY.max_total,
         "max_upload_bytes": MAX_UPLOAD_BYTES,
         "extensions": list(ALLOWED_EXTENSIONS),
-        "allow_urls": ALLOW_URLS,
+        "allow_urls": sources.URLS_ENABLED,
         "sources": sources.list_sources(),
     })
     resp.headers["Cache-Control"] = "no-store"
@@ -258,18 +257,16 @@ def close_video(video_id: str):
 # ---------------------------------------------------------------------------- sources
 @blueprint.route("/api/sources", methods=["GET"])
 def list_sources():
-    return jsonify({"sources": sources.list_sources(), "allow_urls": ALLOW_URLS})
+    return jsonify({"sources": sources.list_sources(), "allow_urls": sources.URLS_ENABLED})
 
 
 @blueprint.route("/api/sources/url", methods=["POST"])
 def open_url_source():
-    if not ALLOW_URLS:
-        return _err("urls_disabled", 403)
     data = _body()
     try:
         cs = sources.open_url(data.get("url"), data.get("label"), copy_from=_copy_from(data))
     except sources.SourceError as exc:
-        return _err(exc.code, exc.status)
+        return _err(exc.code, exc.status, message=sources.URL_ERRORS.get(exc.code))
     return jsonify({"ok": True, "camera_id": cs.camera_id, "camera": _camera_out(cs),
                     "playback": cs.source.playback_payload()})
 

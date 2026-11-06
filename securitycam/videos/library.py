@@ -37,7 +37,6 @@ VIDEOS_DIR = DATA_DIR / "videos"
 INCOMING_DIR = VIDEOS_DIR / ".incoming"
 MAX_UPLOAD_BYTES = _env_int("SECURITYCAM_VIDEO_MAX_MB", 1024, 1) * MB
 MAX_TOTAL_BYTES = _env_int("SECURITYCAM_VIDEO_MAX_TOTAL_MB", 10240, 1) * MB
-ALLOW_URLS = os.getenv("SECURITYCAM_VIDEO_ALLOW_URLS", "true").strip().lower() in {"1", "true", "yes", "on"}
 ALLOWED_EXTENSIONS = ("mp4", "mkv", "avi", "mov", "webm")
 THUMB_WIDTH = 320
 NAME_MAX = 120

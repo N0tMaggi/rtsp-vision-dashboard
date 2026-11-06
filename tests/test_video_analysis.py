@@ -440,15 +440,139 @@ class SourceTests(LibraryCase):
             r = self.client.post("/api/sources/url", json={"url": bad})
             self.assertEqual(r.status_code, 400, bad)
             self.assertEqual(r.get_json()["error"], code, bad)
-        # an unreachable test-net address: the source opens (lazy), the stream reports an error
-        r = self.client.post("/api/sources/url", json={"url": "http://user:secret@192.0.2.1:9/cam.mjpg", "label": "Test"})
-        self.assertEqual(r.status_code, 200)
+        # a public host (resolution mocked): the source opens lazily, nothing is contacted here
+        with fake_dns({"cams.example.com": ["93.184.216.34"]}):
+            r = self.client.post("/api/sources/url", json={"url": "http://user:secret@cams.example.com:9/cam.mjpg", "label": "Test"})
+        self.assertEqual(r.status_code, 200, r.get_json())
         cid = r.get_json()["camera_id"]
         listed = self.client.get("/api/sources").get_json()["sources"]
-        self.assertEqual(listed[0]["url"], "http://user:***@192.0.2.1:9/cam.mjpg")
+        self.assertEqual(listed[0]["url"], "http://user:***@cams.example.com:9/cam.mjpg")
         self.assertNotIn("secret", json.dumps(self.client.get("/api/cameras").get_json()))
         self.assertEqual(self.client.post(f"/api/sources/{cid}/playback", json={"action": "pause"}).status_code, 409)
         self.assertFalse(self.client.get(f"/api/sources/{cid}/playback").get_json()["seekable"])
+
+
+import socket  # noqa: E402
+from contextlib import contextmanager  # noqa: E402
+
+
+@contextmanager
+def fake_dns(table: dict):
+    """Resolve host names from ``table``; everything else goes to the real resolver."""
+    real = socket.getaddrinfo
+
+    def fake(host, port, *args, **kwargs):
+        if host in table:
+            out = []
+            for ip in table[host]:
+                fam = socket.AF_INET6 if ":" in ip else socket.AF_INET
+                sa = (ip, port, 0, 0) if fam == socket.AF_INET6 else (ip, port)
+                out.append((fam, socket.SOCK_STREAM, 6, "", sa))
+            return out
+        return real(host, port, *args, **kwargs)
+
+    with mock.patch.object(socket, "getaddrinfo", fake):
+        yield
+
+
+class UrlPolicyTests(LibraryCase):
+    """SSRF policy for URL sources, all through the HTTP API."""
+
+    def post(self, url):
+        return self.client.post("/api/sources/url", json={"url": url})
+
+    def assertRefused(self, url, codes=("blocked_address",)):
+        before = len(sources.list_sources())
+        r = self.post(url)
+        self.assertEqual(r.status_code, 400, f"{url}: {r.get_json()}")
+        self.assertIn(r.get_json()["error"], codes, url)
+        self.assertEqual(len(sources.list_sources()), before, url)
+
+    def test_loopback_and_literal_tricks_blocked(self):
+        for url in ("http://localhost/x.mp4", "http://127.0.0.1/x", "rtsp://[::1]:554/s",
+                    "http://[::ffff:127.0.0.1]/x", "http://[::ffff:7f00:1]/x", "http://0.0.0.0/x",
+                    "http://[::]/x"):
+            self.assertRefused(url)
+        # decimal / octal / hex spellings either resolve to loopback or don't resolve at all
+        for url in ("http://127.1/x", "http://0x7f000001/x", "http://2130706433/x", "http://0177.0.0.1/x", "http://017700000001/x"):
+            self.assertRefused(url, ("blocked_address", "unresolvable_host"))
+
+    def test_metadata_link_local_multicast_reserved_blocked(self):
+        for url in ("http://169.254.169.254/latest/meta-data/", "http://[fd00:ec2::254]/", "http://[fe80::1]/x",
+                    "rtsp://224.0.0.1/s", "http://239.255.255.250/x", "http://[ff02::1]/x", "http://240.0.0.1/x",
+                    "http://255.255.255.255/x", "http://[2002:7f00:1::]/x", "http://[64:ff9b::7f00:1]/x"):
+            self.assertRefused(url)
+        # even the private opt-in and an allowlist never open metadata / loopback
+        with mock.patch.object(sources, "URL_ALLOW_PRIVATE", True), \
+                mock.patch.object(sources, "URL_ALLOW_CIDRS", (sources.ipaddress.ip_network("0.0.0.0/0"),)):
+            self.assertRefused("http://169.254.169.254/latest/meta-data/")
+            self.assertRefused("http://[fd00:ec2::254]/")
+            self.assertRefused("http://127.0.0.1/x")
+
+    def test_private_ranges_need_opt_in(self):
+        private = ("http://10.0.0.5/x.mp4", "http://192.168.1.20/cam.mjpg", "rtsp://172.16.0.9/stream1",
+                   "http://[fd12:3456::1]/x", "http://100.64.1.1/x")
+        for url in private:
+            self.assertRefused(url, ("private_address",))
+        with mock.patch.object(sources, "URL_ALLOW_PRIVATE", True):
+            for url in private[:4]:
+                r = self.post(url)
+                self.assertEqual(r.status_code, 200, f"{url}: {r.get_json()}")
+        sources.close_all()
+        nets = (sources.ipaddress.ip_network("192.168.1.0/24"),)
+        with mock.patch.object(sources, "URL_ALLOW_CIDRS", nets):
+            self.assertEqual(self.post("http://192.168.1.20/cam.mjpg").status_code, 200)
+            self.assertRefused("http://192.168.2.20/cam.mjpg", ("private_address",))
+
+    def test_hostname_resolution_is_checked(self):
+        with fake_dns({"evil.example": ["127.0.0.1"]}):
+            self.assertRefused("http://evil.example/x.m3u8")
+        # one bad address among several is enough to refuse
+        with fake_dns({"mixed.example": ["93.184.216.34", "10.0.0.1"]}):
+            self.assertRefused("http://mixed.example/x", ("private_address",))
+        with fake_dns({"v6.example": ["::ffff:169.254.169.254"]}):
+            self.assertRefused("http://v6.example/x")
+        self.assertRefused("http://does-not-exist.invalid/x", ("unresolvable_host",))
+        with fake_dns({"cams.example.org": ["93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946"]}):
+            r = self.post("https://cams.example.org/live/index.m3u8")
+        self.assertEqual(r.status_code, 200, r.get_json())
+
+    def test_master_switch(self):
+        with mock.patch.object(sources, "URLS_ENABLED", False):
+            with fake_dns({"cams.example.com": ["93.184.216.34"]}):
+                r = self.post("http://cams.example.com/x.mp4")
+            self.assertEqual(r.status_code, 403)
+            self.assertEqual(r.get_json()["error"], "urls_disabled")
+            self.assertFalse(self.client.get("/api/videos").get_json()["allow_urls"])
+
+    def test_reader_rechecks_and_whitelists_protocols(self):
+        with fake_dns({"cams.example.com": ["93.184.216.34"]}):
+            cid = self.post("http://cams.example.com/x.mp4").get_json()["camera_id"]
+        cs = state.get_camera_state(cid)
+        seen = {}
+        real_capture = cv2.VideoCapture
+
+        def fake_capture(*args, **kwargs):
+            if args:
+                seen["options"] = os.environ.get("OPENCV_FFMPEG_CAPTURE_OPTIONS")
+                seen["args"] = args
+            return real_capture()
+
+        before = os.environ.get("OPENCV_FFMPEG_CAPTURE_OPTIONS")
+        # DNS now points somewhere else (rebinding): the reader refuses before FFmpeg connects
+        with fake_dns({"cams.example.com": ["127.0.0.1"]}), mock.patch.object(sources.cv2, "VideoCapture", fake_capture):
+            stream = sources.UrlVideoStream(cs.source.url, cs)
+        self.assertNotIn("options", seen)
+        self.assertFalse(stream.grabbed)
+        self.assertIn("blocked", cs.stream_error)
+        stream.release()
+        with fake_dns({"cams.example.com": ["93.184.216.34"]}), mock.patch.object(sources.cv2, "VideoCapture", fake_capture):
+            stream = sources.UrlVideoStream(cs.source.url, cs)
+        stream.release()
+        self.assertIn("protocol_whitelist;http,https,tcp,tls,rtsp,rtp,udp,crypto", seen["options"])
+        self.assertNotIn("file", seen["options"].split("protocol_whitelist;")[1])
+        self.assertEqual(seen["args"][1], cv2.CAP_FFMPEG)
+        self.assertEqual(os.environ.get("OPENCV_FFMPEG_CAPTURE_OPTIONS"), before)   # restored
 
 
 @unittest.skipUnless(os.getenv("SECURITYCAM_TEST_MODELS_DIR"), "set SECURITYCAM_TEST_MODELS_DIR for the real-model test")

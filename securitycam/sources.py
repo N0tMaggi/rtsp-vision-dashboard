@@ -16,7 +16,10 @@ history, tracker, re-entry ids) is reset so ids and tracers don't jump across.
 """
 from __future__ import annotations
 
+import ipaddress
 import itertools
+import os
+import socket
 import threading
 import time
 from dataclasses import dataclass
@@ -25,7 +28,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import cv2
 
-from . import config, state
+from . import capture_env, config, state
 from .streaming import VideoStream
 
 SPEED_MIN = 0.25
@@ -402,7 +405,18 @@ class UrlVideoStream(VideoStream):
     def __init__(self, url: str, camera_state, clock: Callable[[], float] = time.perf_counter):
         _base_stream_attrs(self, camera_state)
         self.clock = clock
-        self.stream = cv2.VideoCapture(url)
+        try:
+            # Re-check right before FFmpeg connects (narrows the DNS-rebinding window).
+            check_destination(url)
+        except SourceError as exc:
+            self.stream = cv2.VideoCapture()
+            camera_state.stream_error = f"Stream URL blocked: {URL_ERRORS.get(exc.code, exc.code)}"
+            return
+        with capture_env.options(FFMPEG_URL_OPTIONS):
+            self.stream = cv2.VideoCapture(url, cv2.CAP_FFMPEG, [
+                cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, URL_TIMEOUT_MS,
+                cv2.CAP_PROP_READ_TIMEOUT_MSEC, URL_TIMEOUT_MS,
+            ])
         try:
             self.stream.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         except Exception:
@@ -506,6 +520,107 @@ def redact_url(url: str) -> str:
     return urlunsplit((parts.scheme, netloc, parts.path, parts.query, ""))
 
 
+# ---------------------------------------------------------------------------- URL policy (SSRF)
+def _env_flag(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _parse_cidrs(raw: str) -> tuple:
+    nets = []
+    for part in raw.replace(";", ",").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            nets.append(ipaddress.ip_network(part, strict=False))
+        except ValueError:
+            print(f"[Sources] Ignoring invalid CIDR in SECURITYCAM_VIDEO_URL_ALLOW_CIDRS: {part!r}")
+    return tuple(nets)
+
+
+# Master switch (legacy name SECURITYCAM_VIDEO_ALLOW_URLS still honoured when set).
+URLS_ENABLED = _env_flag("SECURITYCAM_VIDEO_URLS", _env_flag("SECURITYCAM_VIDEO_ALLOW_URLS", True))
+URL_ALLOW_PRIVATE = _env_flag("SECURITYCAM_VIDEO_URL_ALLOW_PRIVATE", False)
+URL_ALLOW_CIDRS = _parse_cidrs(os.getenv("SECURITYCAM_VIDEO_URL_ALLOW_CIDRS", ""))
+URL_TIMEOUT_MS = 10000
+# FFmpeg may only use network protocols for URL sources (no file:, pipe:, concat:, data:, ...).
+# HLS segments and keys inherit this whitelist. OpenCV/FFmpeg offer no option to stop HTTP redirects.
+FFMPEG_URL_OPTIONS = "protocol_whitelist;http,https,tcp,tls,rtsp,rtp,udp,crypto"
+_DEFAULT_PORTS = {"http": 80, "https": 443, "rtsp": 554}
+
+# Never reachable, not even with the private opt-in or a CIDR allowlist.
+_ALWAYS_BLOCKED = tuple(ipaddress.ip_network(n) for n in (
+    "0.0.0.0/8", "169.254.0.0/16", "100.100.100.200/32", "fd00:ec2::254/128", "fe80::/10",
+))
+
+URL_ERRORS = {
+    "unresolvable_host": "the host name could not be resolved",
+    "blocked_address": "the host resolves to a loopback, link-local, metadata or otherwise reserved address",
+    "private_address": "the host resolves to a private network address (allow it in .env)",
+}
+
+
+def _embedded_ipv4(ip):
+    """IPv4 hidden in an IPv6 address (mapped, 6to4, Teredo, NAT64), if any."""
+    if ip.version != 6:
+        return None
+    if ip.ipv4_mapped is not None:
+        return ip.ipv4_mapped
+    if ip.sixtofour is not None:
+        return ip.sixtofour
+    if ip.teredo is not None:
+        return ip.teredo[1]
+    if ip in ipaddress.ip_network("64:ff9b::/96"):
+        return ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+    return None
+
+
+def classify_address(ip) -> str | None:
+    """None if ``ip`` may be fetched, else the error code."""
+    candidates = [ip]
+    inner = _embedded_ipv4(ip)
+    if inner is not None:
+        candidates.append(inner)
+    for addr in candidates:
+        if (addr.is_loopback or addr.is_link_local or addr.is_unspecified or addr.is_multicast
+                or addr.is_reserved or any(addr in net for net in _ALWAYS_BLOCKED)
+                or (addr.version == 6 and addr.is_site_local)):
+            return "blocked_address"
+    for addr in candidates:
+        if any(addr in net for net in URL_ALLOW_CIDRS):
+            continue
+        if not addr.is_global:
+            # private ranges, ULA, CGNAT, documentation/benchmark nets, ...
+            if not (URL_ALLOW_PRIVATE and addr.is_private):
+                return "private_address"
+    return None
+
+
+def check_destination(url: str) -> None:
+    """Resolve the URL's host and check EVERY address it resolves to; raises SourceError."""
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    port = parts.port or _DEFAULT_PORTS.get(parts.scheme.lower(), 80)
+    try:
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except (socket.gaierror, UnicodeError, OSError):
+        raise SourceError("unresolvable_host") from None
+    if not infos:
+        raise SourceError("unresolvable_host")
+    for info in infos:
+        raw = str(info[4][0]).split("%", 1)[0]          # drop an IPv6 zone id
+        try:
+            ip = ipaddress.ip_address(raw)
+        except ValueError:
+            raise SourceError("blocked_address") from None
+        code = classify_address(ip)
+        if code is not None:
+            raise SourceError(code)
+
+
 def validate_url(raw: Any) -> str:
     if not isinstance(raw, str):
         raise SourceError("invalid_url")
@@ -574,7 +689,10 @@ def open_file(video_id: str, path: str, label: str, fps: float, frame_count: int
 
 
 def open_url(raw_url: Any, label: Any = None, copy_from: str | None = None) -> state.CameraRuntime:
+    if not URLS_ENABLED:
+        raise SourceError("urls_disabled", 403)
     url = validate_url(raw_url)
+    check_destination(url)
     with _lock:
         for cs in state.list_camera_states():
             if cs.source is not None and cs.source.kind == "url" and cs.source.url == url:
