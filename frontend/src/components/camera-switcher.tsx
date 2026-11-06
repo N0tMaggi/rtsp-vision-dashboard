@@ -11,7 +11,7 @@ interface Props {
 export function CameraSwitcher({ cameras, activeId, onSelect }: Props) {
   return (
     <nav
-      aria-label="Kamera wählen"
+      aria-label="Select camera"
       className="flex w-fit max-w-full items-center gap-0.5 overflow-x-auto rounded-full border border-border/70 bg-background/70 p-1 backdrop-blur-md"
     >
       {cameras.map((cam) => {
@@ -35,7 +35,7 @@ export function CameraSwitcher({ cameras, activeId, onSelect }: Props) {
               />
             )}
             <span className="relative flex items-center gap-2">
-              {!cam.has_stream && <span className="size-1.5 rounded-full bg-current opacity-50" aria-label="nicht konfiguriert" />}
+              {!cam.has_stream && <span className="size-1.5 rounded-full bg-current opacity-50" aria-label="not configured" />}
               {cam.label}
             </span>
           </button>

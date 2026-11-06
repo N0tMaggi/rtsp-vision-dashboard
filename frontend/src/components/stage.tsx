@@ -256,10 +256,10 @@ export function Stage(props: Props) {
 
   const phase: Phase = !camera?.has_stream ? "idle" : error ? "error" : loaded ? "live" : "connecting"
   let message: string | null = null
-  if (!camera) message = "Kamera wird geladen"
-  else if (!camera.has_stream) message = `Für ${camera.label} ist kein RTSP-Stream konfiguriert. Trage IP und Pfad in der .env ein.`
+  if (!camera) message = "Loading camera"
+  else if (!camera.has_stream) message = `No RTSP stream is configured for ${camera.label}. Add its IP and stream path to .env.`
   else if (phase === "error") message = error
-  else if (phase === "connecting") message = `Verbinde mit ${camera.label}`
+  else if (phase === "connecting") message = `Connecting to ${camera.label}`
 
   const hovered = tool === "select" && hoverId !== lockedId ? (list.find((t) => t.id === hoverId) ?? null) : null
   const cursor =
@@ -298,7 +298,7 @@ export function Stage(props: Props) {
             <motion.img
               key={`${camera.id}-${nonce}`}
               src={api.streamUrl(camera.id, nonce)}
-              alt={`Livebild ${camera.label}`}
+              alt={`Live view of ${camera.label}`}
               draggable={false}
               onLoad={(e) => {
                 const img = e.currentTarget
@@ -349,7 +349,7 @@ export function Stage(props: Props) {
       </motion.div>
       </motion.div>
 
-      <Brackets phase={phase} rect={rect} area={{ w: box.w, h: box.h, right: rightInset }} />
+      <Brackets phase={phase} rect={rect} area={{ w: box.w, h: box.h, right: rightInset }} instant={!laidOut.current} />
 
       <AnimatePresence mode="wait">
         {message && (
@@ -401,7 +401,9 @@ function Brackets({
   phase,
   rect,
   area,
+  instant,
 }: {
+  instant: boolean
   phase: Phase
   rect: { left: number; top: number; width: number; height: number }
   area: { w: number; h: number; right: number }
@@ -431,7 +433,7 @@ function Brackets({
       className="pointer-events-none absolute"
       initial={false}
       animate={{ ...box, opacity: live ? 0.9 : 0.55 }}
-      transition={{ type: "spring", stiffness: 160, damping: 22 }}
+      transition={instant ? { duration: 0 } : { type: "spring", stiffness: 160, damping: 22 }}
     >
       {corners.map((c) => (
         <span key={c} className={cn("absolute size-7 transition-colors duration-500", color, c)} />

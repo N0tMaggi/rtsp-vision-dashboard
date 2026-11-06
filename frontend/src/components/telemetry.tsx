@@ -28,10 +28,10 @@ export function TelemetryBar({ status }: { status: CameraStatus | null }) {
 
   return (
     <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-border/70 bg-background/80 px-5 py-2.5 text-[13px] backdrop-blur-md">
-      <Metric label="Ziele" value={s?.num_detections ?? 0} highlight={aiOn && (s?.num_detections ?? 0) > 0} />
-      <Metric label="Gesichter" value={s?.faces ?? 0} />
-      <Metric label="Inferenz" value={s?.last_infer_ms ?? 0} unit="ms" dim={!aiOn} />
-      <Metric label="AI-fps" value={s?.inference_fps ?? 0} digits={1} dim={!aiOn} />
+      <Metric label="Targets" value={s?.num_detections ?? 0} highlight={aiOn && (s?.num_detections ?? 0) > 0} />
+      <Metric label="Faces" value={s?.faces ?? 0} />
+      <Metric label="Inference" value={s?.last_infer_ms ?? 0} unit="ms" dim={!aiOn} />
+      <Metric label="AI fps" value={s?.inference_fps ?? 0} digits={1} dim={!aiOn} />
 
       <div className="flex items-center gap-2">
         <span className="text-muted-foreground">{gpu?.name ?? "GPU"}</span>
@@ -45,7 +45,7 @@ export function TelemetryBar({ status }: { status: CameraStatus | null }) {
         <Meter pct={memPct} />
       </div>
 
-      <ul className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1.5" aria-label="Erkannte Klassen">
+      <ul className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1.5" aria-label="Detected classes">
         <AnimatePresence initial={false}>
           {(s?.classes ?? []).map((c) => (
             <motion.li
@@ -62,7 +62,7 @@ export function TelemetryBar({ status }: { status: CameraStatus | null }) {
           ))}
         </AnimatePresence>
         <span className="hidden text-muted-foreground lg:inline">
-          {s ? `${s.resolution} auf ${s.device.toUpperCase()}` : ""}
+          {s ? `${s.resolution} on ${s.device.toUpperCase()}` : ""}
         </span>
       </ul>
     </div>

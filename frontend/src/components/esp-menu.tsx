@@ -23,11 +23,11 @@ import { cn } from "@/lib/utils"
 type Update = (key: string, value: boolean | number | string, immediate?: boolean) => void
 
 const CATEGORIES = [
-  { id: "visual", label: "Darstellung", icon: Box },
-  { id: "face", label: "Gesichter & Hände", icon: ScanFace },
+  { id: "visual", label: "Visuals", icon: Box },
+  { id: "face", label: "Faces & Hands", icon: ScanFace },
   { id: "track", label: "Tracking", icon: Route },
-  { id: "zones", label: "Zonen", icon: SquareDashed },
-  { id: "style", label: "Farben", icon: Palette },
+  { id: "zones", label: "Zones", icon: SquareDashed },
+  { id: "style", label: "Colors", icon: Palette },
 ] as const
 type CategoryId = (typeof CATEGORIES)[number]["id"]
 
@@ -65,7 +65,7 @@ export function EspMenu({ open, onClose, status, models, settings, onUpdate, onT
       {open && (
         <motion.aside
           key="esp-menu"
-          aria-label="ESP-Menü"
+          aria-label="ESP menu"
           initial={{ opacity: 0, x: 24, scale: 0.98 }}
           animate={{ opacity: 1, x: 0, scale: 1 }}
           exit={{ opacity: 0, x: 24, scale: 0.98 }}
@@ -85,18 +85,18 @@ export function EspMenu({ open, onClose, status, models, settings, onUpdate, onT
                 checked={aiOn}
                 onCheckedChange={onToggleAi}
                 disabled={!aiAvailable || busy}
-                aria-label="Erkennung"
+                aria-label="Detection"
               />
               <label htmlFor="ai-toggle" className="text-sm">
-                Erkennung
+                Detection
                 <span className="block text-xs text-muted-foreground">
-                  {!status ? "Keine Verbindung" : !aiAvailable ? "YOLO nicht installiert" : aiOn ? "Läuft" : "Aus"}
+                  {!status ? "Not connected" : !aiAvailable ? "YOLO not installed" : aiOn ? "Running" : "Off"}
                 </span>
               </label>
             </div>
             <Select value={status?.yolo_model ?? undefined} onValueChange={onModelChange} disabled={!aiAvailable || busy}>
-              <SelectTrigger size="sm" className="w-[150px] text-xs" aria-label="Modell">
-                <SelectValue placeholder="Modell" />
+              <SelectTrigger size="sm" className="w-[150px] text-xs" aria-label="Model">
+                <SelectValue placeholder="Model" />
               </SelectTrigger>
               <SelectContent>
                 {models.map((m) => (
@@ -109,7 +109,7 @@ export function EspMenu({ open, onClose, status, models, settings, onUpdate, onT
             <button
               type="button"
               onClick={onClose}
-              aria-label="Menü schließen"
+              aria-label="Close menu"
               className="-mr-1 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
               <X className="size-4" />
@@ -118,7 +118,7 @@ export function EspMenu({ open, onClose, status, models, settings, onUpdate, onT
 
           <div className="flex min-h-0 flex-1">
             {/* Category rail */}
-            <nav className="flex flex-col gap-1 border-r border-border p-2" aria-label="Kategorien">
+            <nav className="flex flex-col gap-1 border-r border-border p-2" aria-label="Categories">
               {CATEGORIES.map(({ id, label, icon: Icon }) => {
                 const active = id === category
                 return (
@@ -169,7 +169,7 @@ export function EspMenu({ open, onClose, status, models, settings, onUpdate, onT
           </div>
 
           <p className="hidden border-t border-border px-4 py-2 text-xs text-muted-foreground md:block">
-            <kbd className="rounded border border-border px-1.5 py-0.5 text-[11px]">M</kbd> blendet das Menü ein und aus
+            <kbd className="rounded border border-border px-1.5 py-0.5 text-[11px]">M</kbd> toggles this menu
           </p>
         </motion.aside>
       )}
@@ -194,7 +194,7 @@ function CategoryBody({
       return (
         <>
           <SegmentPicker
-            label="Box-Stil"
+            label="Box Style"
             id="box-style"
             options={BOX_STYLES}
             value={String(settings.box_style ?? "corner")}
@@ -211,7 +211,7 @@ function CategoryBody({
           <div className="mt-4 border-t border-border pt-4">
             <p className="mb-2 text-sm text-muted-foreground">Face Blur Mode</p>
             <SegmentPicker
-              label="Art der Unkenntlichmachung"
+              label="Face Blur Mode"
               id="face-blur-mode"
               options={FACE_BLUR_MODES}
               value={String(settings.face_blur_mode ?? "blur")}
@@ -233,11 +233,11 @@ function CategoryBody({
         <>
           <ToggleList items={TRACKING_TOGGLES} settings={settings} onUpdate={onUpdate} />
           <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
-            Spuren, Geschwindigkeit und Vorhersage brauchen eingeschaltetes Tracking.
+            Tracers, velocity and prediction need tracking turned on.
           </p>
           <SliderList items={sliders(["smoothing"])} settings={settings} onUpdate={onUpdate} />
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-            0 % zeigt die Boxen roh im YOLO-Takt, höher lässt sie zwischen den Erkennungen gleiten.
+            At 0% boxes jump at YOLO rate; higher values glide them between detections.
           </p>
         </>
       )
@@ -392,12 +392,12 @@ function ZonesPanel({ settings, onUpdate, zones }: { settings: EspSettings; onUp
         onClick={zones.onDraw}
         className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-primary/50 py-2.5 text-sm text-primary transition-colors duration-200 hover:border-primary hover:bg-primary/10"
       >
-        <SquareDashed className="size-4" /> Zone zeichnen
+        <SquareDashed className="size-4" /> Draw Zone
         <kbd className="rounded border border-primary/40 px-1.5 text-[11px]">Z</kbd>
       </button>
       {zones.list.length === 0 ? (
         <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
-          Noch keine Zonen. Zieh im Bild ein Rechteck auf, zum Beispiel um die Einfahrt. Die Zone zählt, wie viele Objekte gerade darin sind.
+          No zones yet. Drag a rectangle on the video, for example around the driveway. A zone counts how many objects are inside it.
         </p>
       ) : (
         <ul className="mt-3 space-y-1">
@@ -441,7 +441,7 @@ function ZoneRow({ zone, zones }: { zone: Zone; zones: ZoneActions }) {
         <input
           type="color"
           value={zone.color}
-          aria-label={`Farbe von ${zone.label}`}
+          aria-label={`Color of ${zone.label}`}
           onChange={(e) => zones.onRecolor(zone.id, e.target.value)}
           className="absolute inset-0 cursor-pointer opacity-0"
         />
@@ -449,7 +449,7 @@ function ZoneRow({ zone, zones }: { zone: Zone; zones: ZoneActions }) {
       <input
         value={label}
         maxLength={32}
-        aria-label="Name der Zone"
+        aria-label="Zone name"
         onChange={(e) => setLabel(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
@@ -460,14 +460,14 @@ function ZoneRow({ zone, zones }: { zone: Zone; zones: ZoneActions }) {
           "min-w-7 rounded-full px-2 py-0.5 text-center text-xs tabular-nums transition-colors duration-300",
           zone.count > 0 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
         )}
-        title="Objekte in der Zone"
+        title="Objects in this zone"
       >
         {zone.count}
       </span>
       <button
         type="button"
         onClick={() => zones.onDelete(zone.id)}
-        aria-label={`${zone.label} löschen`}
+        aria-label={`Delete ${zone.label}`}
         className="rounded-md p-1 text-muted-foreground opacity-0 transition-all hover:bg-destructive/15 hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
       >
         <Trash2 className="size-3.5" />

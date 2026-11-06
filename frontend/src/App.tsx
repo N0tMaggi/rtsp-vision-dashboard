@@ -42,7 +42,7 @@ export default function App() {
         setDefaultId(r.default_camera_id)
         setModels(r.available_models ?? [])
       })
-      .catch(() => setLoadError("Der SecurityCam-Server antwortet nicht. Starte ihn mit python main.py und lade die Seite neu."))
+      .catch(() => setLoadError("The SecurityCam server is not responding. Start it with python main.py, then reload this page."))
   }, [])
 
   // M toggles the menu, like an in-game overlay.
@@ -148,7 +148,7 @@ export default function App() {
                   type="button"
                   onClick={() => setMenuOpen((o) => !o)}
                   aria-expanded={menuOpen}
-                  aria-label="ESP-Menü"
+                  aria-label="ESP menu"
                   className={cn(
                     "grid size-9 shrink-0 place-items-center rounded-full border backdrop-blur-md transition-colors duration-300",
                     menuOpen

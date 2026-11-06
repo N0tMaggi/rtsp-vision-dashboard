@@ -25,10 +25,10 @@ const spring = { type: "spring", stiffness: 420, damping: 32 } as const
 
 export function StageToolbar(p: Props) {
   let hint: string
-  if (p.tool === "zone") hint = "Ziehe ein Rechteck, um eine Zone anzulegen. Esc bricht ab."
-  else if (!p.aiOn) hint = "Schalte die Erkennung ein, um Objekte anzuklicken."
-  else if (p.hovered) hint = `${p.hovered.label} #${p.hovered.id} · Klick markiert, Doppelklick zoomt`
-  else hint = "Mausrad zoomt, Ziehen verschiebt, Doppelklick setzt zurück"
+  if (p.tool === "zone") hint = "Drag a rectangle to create a zone. Esc cancels."
+  else if (!p.aiOn) hint = "Turn on detection to select objects."
+  else if (p.hovered) hint = `${p.hovered.label} #${p.hovered.id} · click to lock, double-click to zoom`
+  else hint = "Scroll to zoom, drag to pan, double-click to reset"
 
   return (
     <div
@@ -49,7 +49,7 @@ export function StageToolbar(p: Props) {
               <span className="absolute inset-0 animate-ping rounded-full bg-primary opacity-60" />
               <span className="relative size-2 rounded-full bg-primary" />
             </span>
-            <span>{p.locked ? `${p.locked.label} #${p.locked.id}` : `Ziel #${p.lockedId}`}</span>
+            <span>{p.locked ? `${p.locked.label} #${p.locked.id}` : `Target #${p.lockedId}`}</span>
             <button
               type="button"
               onClick={() => p.onFollowChange(!p.follow)}
@@ -59,12 +59,12 @@ export function StageToolbar(p: Props) {
                 p.follow ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground",
               )}
             >
-              <Crosshair className="size-3.5" /> Folgen
+              <Crosshair className="size-3.5" /> Follow
             </button>
             <button
               type="button"
               onClick={p.onUnlock}
-              aria-label="Markierung lösen"
+              aria-label="Unlock target"
               className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
               <X className="size-3.5" />
@@ -75,26 +75,26 @@ export function StageToolbar(p: Props) {
 
       <div className="flex items-center gap-2">
         <div className="flex items-center gap-0.5 rounded-full border border-border/70 bg-background/70 p-1 backdrop-blur-md">
-          <ToolButton active={p.tool === "select"} label="Auswählen (V)" onClick={() => p.onToolChange("select")}>
+          <ToolButton active={p.tool === "select"} label="Select (V)" onClick={() => p.onToolChange("select")}>
             <MousePointer2 className="size-4" />
           </ToolButton>
-          <ToolButton active={p.tool === "zone"} label="Zone zeichnen (Z)" onClick={() => p.onToolChange(p.tool === "zone" ? "select" : "zone")}>
+          <ToolButton active={p.tool === "zone"} label="Draw Zone (Z)" onClick={() => p.onToolChange(p.tool === "zone" ? "select" : "zone")}>
             <SquareDashed className="size-4" />
           </ToolButton>
         </div>
 
         <div className="flex items-center rounded-full border border-border/70 bg-background/70 p-1 backdrop-blur-md">
-          <IconButton label="Herauszoomen (−)" onClick={() => p.onZoom(1 / 1.4)} disabled={p.zoom <= 1.01}>
+          <IconButton label="Zoom out (−)" onClick={() => p.onZoom(1 / 1.4)} disabled={p.zoom <= 1.01}>
             <Minus className="size-3.5" />
           </IconButton>
           <span className="w-12 text-center text-xs tabular-nums">{p.zoom.toFixed(1)}×</span>
-          <IconButton label="Hineinzoomen (+)" onClick={() => p.onZoom(1.4)} disabled={p.zoom >= 7.99}>
+          <IconButton label="Zoom in (+)" onClick={() => p.onZoom(1.4)} disabled={p.zoom >= 7.99}>
             <Plus className="size-3.5" />
           </IconButton>
           <AnimatePresence initial={false}>
             {p.zoom > 1.01 && (
               <motion.span initial={{ width: 0, opacity: 0 }} animate={{ width: "auto", opacity: 1 }} exit={{ width: 0, opacity: 0 }} className="overflow-hidden">
-                <IconButton label="Zoom zurücksetzen (0)" onClick={p.onReset}>
+                <IconButton label="Reset zoom (0)" onClick={p.onReset}>
                   <RotateCcw className="size-3.5" />
                 </IconButton>
               </motion.span>
