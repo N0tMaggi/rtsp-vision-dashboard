@@ -6,7 +6,7 @@ where py >nul 2>&1
 if %errorlevel%==0 set "PYTHON_BIN=py -3"
 
 if not exist ".venv\Scripts\python.exe" (
-  echo [SETUP] Creating virtual environment (.venv)...
+  echo [SETUP] Creating virtual environment ^(.venv^)...
   %PYTHON_BIN% -m venv .venv
   if errorlevel 1 (
     echo [ERROR] Failed to create virtual environment.
@@ -27,6 +27,20 @@ if errorlevel 1 (
   echo [ERROR] Dependency installation failed.
   exit /b 1
 )
+
+rem --- CUDA build of PyTorch ------------------------------------------------
+rem PyPI only ships CPU-only torch on Windows. If an NVIDIA GPU is present and
+rem the installed torch has no CUDA, swap in the CUDA build from pytorch.org.
+rem Override the CUDA flavour with e.g.  set SECURITYCAM_TORCH_CUDA=cu128
+if not defined SECURITYCAM_TORCH_CUDA set "SECURITYCAM_TORCH_CUDA=cu134"
+where nvidia-smi >nul 2>&1
+if errorlevel 1 goto :skip_cuda
+python -c "import sys, torch; sys.exit(0 if torch.version.cuda else 1)" >nul 2>&1
+if not errorlevel 1 goto :skip_cuda
+echo [SETUP] NVIDIA GPU found but torch is CPU-only - installing CUDA build ^(%SECURITYCAM_TORCH_CUDA%^)...
+python -m pip install --force-reinstall --no-deps torch torchvision --index-url https://download.pytorch.org/whl/%SECURITYCAM_TORCH_CUDA%
+if errorlevel 1 echo [WARN] CUDA torch install failed - continuing on CPU.
+:skip_cuda
 
 echo [RUN] Starting SecurityCam...
 python main.py

@@ -104,14 +104,15 @@ securitycam/
 ├─ start_with_venv.sh
 ├─ start_without_venv.sh
 ├─ models/
+├─ frontend/              # React + TypeScript + shadcn/ui dashboard (Vite)
 └─ securitycam/
    ├─ __init__.py
    ├─ config.py
    ├─ deps.py
-   ├─ esp.py
+   ├─ esp/                # ESP overlay package (settings, colors, detections, renderers, pipeline)
    ├─ state.py
+   ├─ static/app/         # built frontend (output of `npm run build`)
    ├─ streaming.py
-   ├─ templates.py
    ├─ validation.py
    └─ webapp.py
 ```
@@ -122,10 +123,11 @@ securitycam/
 - `securitycam/config.py`: env parsing, defaults, model list, RTSP URL build
 - `securitycam/state.py`: shared mutable runtime state
 - `securitycam/deps.py`: dependency checks, optional auto-install, YOLO model load, GPU snapshot
-- `securitycam/esp.py`: complete ESP drawing logic and color utilities
+- `securitycam/esp/`: ESP overlay — `settings.py` (per-frame settings snapshot), `colors.py`, `detections.py` (extraction, smoothing, track history), `sensors.py` (face/hand detection), `renderers.py` (one function per feature), `pipeline.py` (`draw_custom_esp`)
 - `securitycam/streaming.py`: RTSP reader, YOLO worker, render pipeline, MJPEG generator
-- `securitycam/templates.py`: embedded dashboard HTML/CSS/JS template
-- `securitycam/webapp.py`: route wiring and JSON endpoints
+- `securitycam/validation.py`: validates every ESP setting sent to `update_esp`
+- `securitycam/webapp.py`: serves the built frontend, route wiring and JSON endpoints
+- `frontend/`: React + TypeScript + shadcn/ui source of the dashboard
 
 ## How Runtime Processing Works
 
@@ -311,12 +313,14 @@ If `SECURITYCAM_CAMERAS` is set, the legacy single-camera variables are used onl
 | `SECURITYCAM_YOLO_MODEL` | no | `yolov8n.pt` | Startup model |
 | `SECURITYCAM_YOLO_IMG_SIZE` | no | `640` | Inference image size |
 | `SECURITYCAM_DISPLAY_SCALE` | no | `1.0` | Display downscale factor |
-| `SECURITYCAM_JPEG_QUALITY` | no | `85` | MJPEG quality |
+| `SECURITYCAM_JPEG_QUALITY` | no | `85` | Default MJPEG quality (per camera adjustable in the ESP menu) |
 | `SECURITYCAM_FACE_DETECT_EVERY` | no | `5` | Face detection cadence |
 | `SECURITYCAM_FACE_DETECT_SCALE` | no | `0.5` | Face detection scaling |
 | `SECURITYCAM_HAND_DETECT_EVERY` | no | `5` | Hand detection cadence |
 | `SECURITYCAM_HAND_DETECT_SCALE` | no | `0.5` | Hand detection scaling |
-| `SECURITYCAM_SMOOTH_ALPHA` | no | `0.6` | Box smoothing alpha |
+| `SECURITYCAM_SMOOTH_ALPHA` | no | `0.6` | Default box smoothing, 0 = raw boxes at inference rate (per camera adjustable in the ESP menu) |
+| `SECURITYCAM_ESP_FONT` | no | – | Path to a TrueType font for ESP labels (falls back to Consolas / DejaVu Sans Mono) |
+| `SECURITYCAM_TORCH_CUDA` | no | `cu134` | CUDA flavour the Windows start scripts install when an NVIDIA GPU is present but torch is CPU-only |
 
 ### Dependency auto-install settings
 
@@ -425,7 +429,7 @@ The dashboard includes the complete advanced ESP feature set.
 
 ### Style features
 
-- RGB rainbow mode (`gay_mode`)
+- RGB rainbow mode (`rgb_mode`; the legacy key `gay_mode` is still accepted by the update endpoint)
 - Primary/secondary color control
 - Per-feature color overrides:
   - boxes
@@ -528,6 +532,17 @@ pip install flask opencv-python ultralytics mediapipe
 python main.py
 ```
 
+### Frontend (React + TypeScript + shadcn/ui)
+
+The built dashboard lives in `securitycam/static/app/` and is committed, so the start scripts work without Node.js. To change the UI (Node 20+):
+
+```bash
+cd frontend
+npm install
+npm run dev     # http://localhost:5173, proxies /api and /video_feed to Flask on :5000
+npm run build   # type-checks and writes securitycam/static/app/
+```
+
 ### Syntax check
 
 ```bash
@@ -536,10 +551,10 @@ python -m compileall main.py securitycam
 
 ### Typical implementation flow
 
-1. add/adjust runtime setting in `config.py`
-2. expose it through dashboard controls in `templates.py`
-3. consume it in `esp.py` or `streaming.py`
-4. verify via `/status`
+1. add/adjust the runtime setting in `config.py` (`DEFAULT_ESP_SETTINGS`) and its rule in `validation.py`
+2. expose it in `frontend/src/lib/esp-schema.ts`
+3. consume it in `securitycam/esp/` or `streaming.py`
+4. rebuild the frontend and verify via `/status`
 
 ## Security Notes
 

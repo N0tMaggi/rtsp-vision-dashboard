@@ -15,3 +15,6 @@ models/
 .env.*
 !.env.example
 *.zip
+
+# YOLO weights belong in models/ (ignored above)
+*.pt

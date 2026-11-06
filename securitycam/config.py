@@ -81,7 +81,10 @@ DISPLAY_SCALE = _env_float("SECURITYCAM_DISPLAY_SCALE", 1.0, minimum=0.2, maximu
 JPEG_QUALITY = _env_int("SECURITYCAM_JPEG_QUALITY", 85, minimum=30, maximum=95)
 FACE_DETECT_EVERY = _env_int("SECURITYCAM_FACE_DETECT_EVERY", 5, minimum=1)
 FACE_DETECT_SCALE = _env_float("SECURITYCAM_FACE_DETECT_SCALE", 0.5, minimum=0.2, maximum=1.0)
+# Default for the per-camera "smoothing" ESP setting (0 = raw boxes, 1 = smoothest).
 SMOOTH_ALPHA = _env_float("SECURITYCAM_SMOOTH_ALPHA", 0.6, minimum=0.0, maximum=1.0)
+# Optional TrueType font for ESP labels (monospace recommended); system monospace fonts otherwise.
+ESP_FONT = os.getenv("SECURITYCAM_ESP_FONT", "").strip()
 HAND_DETECT_EVERY = _env_int("SECURITYCAM_HAND_DETECT_EVERY", 5, minimum=1)
 HAND_DETECT_SCALE = _env_float("SECURITYCAM_HAND_DETECT_SCALE", 0.5, minimum=0.2, maximum=1.0)
 
@@ -118,7 +121,7 @@ DEFAULT_ESP_SETTINGS = {
     "fill_box": False,
     "chams": False,
     "chams_opacity": 0.35,
-    "chams_color": "#00ffff",
+    "chams_color": "#ffd21f",
     "class_colors": False,
     "person_only": False,
     "highlight_center": False,
@@ -134,7 +137,7 @@ DEFAULT_ESP_SETTINGS = {
     "tracers": False,
     "prediction": False,
     "velocity": False,
-    "gay_mode": False,
+    "rgb_mode": False,
     "face_boxes": False,
     "face_zoom": False,
     "face_blur": False,
@@ -142,17 +145,24 @@ DEFAULT_ESP_SETTINGS = {
     "face_zoom_scale": 2.0,
     "hand_skeleton": False,
     "confidence_threshold": 0.35,
-    "color_primary": "#00ff00",
-    "color_secondary": "#ff00ff",
-    "color_boxes": "#00ff00",
-    "color_skeleton": "#00ff00",
-    "color_head": "#ff0000",
-    "color_tracers": "#00ffff",
-    "color_velocity": "#00ffff",
-    "color_prediction": "#ff00ff",
-    "color_face": "#ffc864",
-    "color_hand": "#00ff00",
-    "color_text": "#00ff00",
+    # render-time motion smoothing: 0 = boxes jump at inference rate, 1 = smoothest
+    "smoothing": round(SMOOTH_ALPHA, 2),
+    "label_background": True,
+    "zones": True,
+    "glow": True,
+    "jpeg_quality": JPEG_QUALITY,
+    # theme: anthracite #222427 / signal yellow #ffd21f / white #f4f4f2
+    "color_primary": "#ffd21f",
+    "color_secondary": "#f4f4f2",
+    "color_boxes": "#ffd21f",
+    "color_skeleton": "#f4f4f2",
+    "color_head": "#ff6b57",
+    "color_tracers": "#ffe58a",
+    "color_velocity": "#5ad1ff",
+    "color_prediction": "#9be7ff",
+    "color_face": "#5ad1ff",
+    "color_hand": "#7ee0a1",
+    "color_text": "#f4f4f2",
 }
 
 

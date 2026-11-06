@@ -3,10 +3,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from flask import Flask, Response, abort, jsonify, render_template, request
+from flask import Flask, Response, abort, jsonify, request, send_from_directory
 
-from . import config, deps, state
+from . import config, deps, state, targets
 from .streaming import gen_frames
+from .validation import ZoneError, parse_lock_id
 
 
 def _camera_payload(camera_state: state.CameraRuntime) -> dict:
@@ -48,32 +49,38 @@ def _status_payload(camera_state: state.CameraRuntime) -> dict:
         "esp_settings": camera_state.esp_settings,
         "gpu": state.gpu_stats,
         "stream_error": camera_state.stream_error,
+        "locked": targets.get_locked(camera_state),
+        "zones": targets.zones_payload(camera_state),
+        "assets": dict(getattr(deps, "asset_status", {}) or {}),
     }
 
 
 def create_app() -> Flask:
     deps.ensure_torch_and_yolo()
     package_dir = Path(__file__).resolve().parent
-    app = Flask(
-        __name__,
-        template_folder=str(package_dir / "templates"),
-        static_folder=str(package_dir / "static"),
-    )
+    app = Flask(__name__, static_folder=str(package_dir / "static"))
+
+    frontend_dir = package_dir / "static" / "app"
 
     @app.route("/")
     def index():
-        bootstrap = {
-            "cameras": [_camera_payload(camera_state) for camera_state in state.list_camera_states()],
-            "default_camera_id": config.DEFAULT_CAMERA_ID,
-            "available_models": list(config.AVAILABLE_MODELS),
-        }
-        return render_template("dashboard.html", bootstrap=bootstrap)
+        # The dashboard is a prebuilt React/TypeScript app (see ../frontend).
+        if not (frontend_dir / "index.html").is_file():
+            return Response(
+                "Frontend build missing. Run: cd frontend && npm install && npm run build",
+                status=503,
+                mimetype="text/plain",
+            )
+        response = send_from_directory(frontend_dir, "index.html")
+        response.headers["Cache-Control"] = "no-cache"
+        return response
 
     @app.route("/api/cameras")
     def cameras():
         return jsonify({
             "cameras": [_camera_payload(camera_state) for camera_state in state.list_camera_states()],
             "default_camera_id": config.DEFAULT_CAMERA_ID,
+            "available_models": list(config.AVAILABLE_MODELS),
         })
 
     @app.route("/video_feed")
@@ -113,26 +120,13 @@ def create_app() -> Flask:
 
     @app.route("/api/cameras/<camera_id>/update_esp", methods=["POST"])
     def update_esp(camera_id: str):
+        from .validation import sanitize_esp_patch  # local import keeps this edit route-scoped
+
         camera_state = _get_camera_state_or_404(camera_id)
-        data = request.get_json(silent=True) or {}
-        str_keys = {"box_style"}
-        float_keys = {"confidence_threshold", "line_thickness", "face_zoom_scale", "face_blur_strength", "chams_opacity"}
-
-        for key in camera_state.esp_settings.keys():
-            if key not in data:
-                continue
-            if key.startswith("color_") or key == "chams_color":
-                camera_state.esp_settings[key] = str(data[key])
-            elif key in str_keys:
-                camera_state.esp_settings[key] = str(data[key])
-            elif key in float_keys:
-                try:
-                    camera_state.esp_settings[key] = float(data[key])
-                except Exception:
-                    pass
-            else:
-                camera_state.esp_settings[key] = bool(data[key])
-
+        data = request.get_json(silent=True)
+        # Accepts every DEFAULT_ESP_SETTINGS key (plus legacy "gay_mode" -> "rgb_mode");
+        # unknown keys and invalid values are dropped, numbers are clamped.
+        camera_state.esp_settings.update(sanitize_esp_patch(data))
         return jsonify({"ok": True, "esp_settings": camera_state.esp_settings})
 
     @app.route("/set_model", methods=["POST"])
@@ -156,6 +150,57 @@ def create_app() -> Flask:
         camera_state.yolo_model = None
 
         return jsonify({"ok": True, "yolo_model": camera_state.yolo_model_name})
+
+    # ------------------------------------------------------------------ targets / lock / zones
+    @app.route("/api/cameras/<camera_id>/targets")
+    def camera_targets(camera_id: str):
+        camera_state = _get_camera_state_or_404(camera_id)
+        response = jsonify(targets.targets_payload(camera_state))
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @app.route("/api/cameras/<camera_id>/lock", methods=["POST"])
+    def camera_lock(camera_id: str):
+        camera_state = _get_camera_state_or_404(camera_id)
+        try:
+            target_id = parse_lock_id(request.get_json(silent=True))
+        except ValueError:
+            return jsonify({"ok": False, "error": "invalid_lock"}), 400
+        if not targets.set_lock(camera_state, target_id):
+            return jsonify({"ok": False, "error": "unknown_target"}), 404
+        return jsonify({"ok": True, "locked": targets.get_locked(camera_state)})
+
+    @app.route("/api/cameras/<camera_id>/zones", methods=["GET"])
+    def camera_zones(camera_id: str):
+        camera_state = _get_camera_state_or_404(camera_id)
+        return jsonify({"zones": targets.zones_payload(camera_state)})
+
+    @app.route("/api/cameras/<camera_id>/zones", methods=["POST"])
+    def camera_zone_create(camera_id: str):
+        camera_state = _get_camera_state_or_404(camera_id)
+        try:
+            zone = targets.create_zone(camera_state, request.get_json(silent=True))
+        except ZoneError as exc:
+            return jsonify({"ok": False, "error": exc.code}), 400
+        return jsonify({"ok": True, "zone": zone})
+
+    @app.route("/api/cameras/<camera_id>/zones/<zone_id>", methods=["PATCH"])
+    def camera_zone_update(camera_id: str, zone_id: str):
+        camera_state = _get_camera_state_or_404(camera_id)
+        try:
+            zone = targets.update_zone(camera_state, zone_id, request.get_json(silent=True))
+        except ZoneError as exc:
+            return jsonify({"ok": False, "error": exc.code}), 400
+        if zone is None:
+            return jsonify({"ok": False, "error": "unknown_zone"}), 404
+        return jsonify({"ok": True, "zone": zone})
+
+    @app.route("/api/cameras/<camera_id>/zones/<zone_id>", methods=["DELETE"])
+    def camera_zone_delete(camera_id: str, zone_id: str):
+        camera_state = _get_camera_state_or_404(camera_id)
+        if not targets.delete_zone(camera_state, zone_id):
+            return jsonify({"ok": False, "error": "unknown_zone"}), 404
+        return jsonify({"ok": True})
 
     return app
 

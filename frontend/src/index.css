@@ -1,0 +1,88 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "@fontsource-variable/jetbrains-mono";
+
+@custom-variant dark (&:is(.dark *));
+
+/* Anthracite / Yellow / White — single dark monochrome theme */
+:root {
+  /* Anthracite / signal yellow / white */
+  --radius: 0.5rem;
+  --background: #222427;
+  --foreground: #f4f4f2;
+  --card: #2c2f33;
+  --card-foreground: #f4f4f2;
+  --popover: #2c2f33;
+  --popover-foreground: #f4f4f2;
+  --primary: #ffd21f;
+  --primary-foreground: #222427;
+  --secondary: #34373c;
+  --secondary-foreground: #f4f4f2;
+  --muted: #34373c;
+  --muted-foreground: #8b8f96;
+  --accent: #363940;
+  --accent-foreground: #f4f4f2;
+  --destructive: #ff5a4e;
+  --border: #3b3e44;
+  --input: #464a51;
+  --ring: #ffd21f;
+  --ease-hud: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@theme inline {
+  --font-sans: "JetBrains Mono Variable", ui-monospace, monospace;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    color-scheme: dark;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-background text-foreground font-mono antialiased;
+    overflow: hidden;
+    font-feature-settings: "zero" 1;
+  }
+  ::selection {
+    @apply bg-primary text-primary-foreground;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

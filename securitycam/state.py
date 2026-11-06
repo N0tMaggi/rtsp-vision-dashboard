@@ -46,14 +46,29 @@ class CameraRuntime:
     esp_settings: dict[str, Any] = field(default_factory=lambda: config.DEFAULT_ESP_SETTINGS.copy())
     track_history: dict[Any, list[tuple[int, int, float]]] = field(default_factory=dict)
     max_track_history: int = 30
-    smoothed_boxes: dict[Any, dict[str, Any]] = field(default_factory=dict)
     last_faces: list[tuple[int, int, int, int]] = field(default_factory=list)
     last_face_frame: int = -999
     last_hands: list[list[tuple[int, int]]] = field(default_factory=list)
     last_hand_frame: int = -999
     hand_detector: Any = None
+    # Guards track_history / esp_motion / last_faces / last_hands / hand_detector
+    # while the ESP overlay runs.
+    esp_lock: threading.RLock = field(default_factory=threading.RLock)
+    # Render-time motion model (esp.motion.MotionState), created lazily.
+    esp_motion: Any = None
+    # Locked target id (same id space as /targets) or None; user zones (normalized boxes).
+    esp_locked: int | None = None
+    esp_zones: list[dict[str, Any]] = field(default_factory=list)
+    esp_zone_seq: int = 0
+    # Last results object folded into the motion model (ingested once per inference).
+    esp_last_results: Any = None
+    # (results, num_detections, classes) cache so stats are computed once per result.
+    results_meta: Any = None
     latest_frame: Any = None
+    # time.perf_counter() capture time of latest_frame / of the frame latest_results came from
+    latest_frame_ts: float = 0.0
     latest_results: Any = None
+    latest_results_ts: float | None = None
     frame_lock: threading.Lock = field(default_factory=threading.Lock)
     stats: dict[str, Any] = field(default_factory=_default_stats)
     stream_error: str = ""
