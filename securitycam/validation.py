@@ -42,6 +42,7 @@ NUMERIC_KEYS: dict[str, tuple[float, float, str]] = {
     "chams_opacity": (0.0, 1.0, "float"),
     "smoothing": (0.0, 1.0, "float"),
     "jpeg_quality": (30, 95, "int"),
+    "abandoned_seconds": (5, 600, "int"),
 }
 
 

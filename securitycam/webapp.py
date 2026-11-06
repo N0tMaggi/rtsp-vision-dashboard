@@ -202,6 +202,8 @@ def create_app() -> Flask:
             return jsonify({"ok": False, "error": "unknown_zone"}), 404
         return jsonify({"ok": True})
 
+    from .alerts.routes import blueprint as alerts_blueprint  # alarms, tripwires, events, snapshots
+    app.register_blueprint(alerts_blueprint)
     return app
 
 

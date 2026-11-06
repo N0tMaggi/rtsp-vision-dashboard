@@ -15,6 +15,7 @@ import time
 import cv2
 
 from . import config, deps, state
+from .alerts.clips import record_frame
 from .esp import draw_custom_esp
 
 FRAME_WAIT_S = 2.0          # how long a client waits for a new frame before flagging the stream
@@ -171,7 +172,9 @@ def render_jpeg(camera_state, frame, frame_ts=None):
     ok, buffer = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), _jpeg_quality(camera_state)])
     if not ok:
         return None
-    return buffer.tobytes()
+    jpeg = buffer.tobytes()
+    record_frame(camera_state, jpeg)   # alarm pre-roll ring buffer + snapshot source
+    return jpeg
 
 
 class VideoStream:

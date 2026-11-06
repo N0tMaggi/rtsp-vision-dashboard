@@ -152,6 +152,11 @@ DEFAULT_ESP_SETTINGS = {
     "zones": True,
     "glow": True,
     "jpeg_quality": JPEG_QUALITY,
+    # alarms & events (securitycam/alerts): rule evaluation, tripwire overlay, abandoned objects
+    "alarms": True,
+    "tripwires": True,
+    "abandoned": False,
+    "abandoned_seconds": 30,
     # theme: anthracite #222427 / signal yellow #ffd21f / white #f4f4f2
     "color_primary": "#ffd21f",
     "color_secondary": "#f4f4f2",
