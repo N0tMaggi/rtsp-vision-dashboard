@@ -72,6 +72,9 @@ def create_app() -> Flask:
         # non-browser clients (curl, scripts) send neither header and are allowed.
         if request.method in ("GET", "HEAD", "OPTIONS"):
             return None
+        # Modern browsers label the request's relation to the page directly.
+        if request.headers.get("Sec-Fetch-Site") in ("cross-site", "same-site"):
+            return jsonify({"ok": False, "error": "cross_origin_request"}), 403
         host = (request.host or "").lower()
         origin = request.headers.get("Origin")
         if origin is not None:
