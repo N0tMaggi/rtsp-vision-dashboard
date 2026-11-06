@@ -1,0 +1,4 @@
+# Windows batch files need CRLF (cmd mis-parses labels/goto with LF-only lines)
+*.bat text eol=crlf
+# Shell scripts must stay LF so they run on Linux/WSL
+*.sh  text eol=lf
