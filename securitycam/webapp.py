@@ -204,6 +204,8 @@ def create_app() -> Flask:
         return jsonify({"ok": True})
 
     app.register_blueprint(visuals_bp)
+    from .alerts.routes import blueprint as alerts_blueprint  # alarms, tripwires, events, snapshots
+    app.register_blueprint(alerts_blueprint)
     return app
 
 

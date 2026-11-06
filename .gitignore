@@ -21,3 +21,5 @@ models/
 
 # Claude Code local state (agent worktrees etc.)
 .claude/
+# Runtime data: alarm rules, events, clips, snapshots
+data/

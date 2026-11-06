@@ -9,6 +9,7 @@ from typing import List, Optional
 import cv2
 import numpy as np
 
+from . import alerts_render as AR
 from . import motion
 from . import renderers as R
 from . import visuals
@@ -125,7 +126,9 @@ def draw_custom_esp(camera_state, frame, results, frame_ts: Optional[float] = No
         locked = getattr(camera_state, "esp_locked", None)
         if locked is not None and locked not in mst.tracks:
             camera_state.esp_locked = locked = None   # locked track was pruned
-        zones = list(getattr(camera_state, "esp_zones", None) or ()) if s.zones else []
+        zones, alert_info = AR.update(camera_state, detections, w, h, t_frame,
+                                      list(getattr(camera_state, "esp_zones", None) or ()))
+        zones = zones if s.zones else []
 
     # ---- frame-level effects (on the raw image, before any overlay) -----------------
     if s.face_blur and faces:
@@ -154,6 +157,7 @@ def draw_custom_esp(camera_state, frame, results, frame_ts: Optional[float] = No
                 zone_tags.append(ztag)
         except (KeyError, TypeError, ValueError):
             continue
+    AR.draw_under(frame, alert_info, zones, st, camera_state.esp_settings)
 
     # ---- detections ----------------------------------------------------------------
     if detections:
@@ -241,6 +245,7 @@ def draw_custom_esp(camera_state, frame, results, frame_ts: Optional[float] = No
         for det, tag, _ in tags:
             R.place_tag(tag, (det.x1, det.y1, det.x2, det.y2), w, h, st, placed)
             R.draw_tag(frame, tag)
+    AR.draw_over(frame, alert_info, st, camera_state.esp_settings, s.color_text, s.label_background, placed)
 
     # ---- faces / hands / inset -----------------------------------------------------
     if s.face_boxes and faces:

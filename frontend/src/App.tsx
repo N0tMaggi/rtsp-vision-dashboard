@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { MotionConfig, motion } from "motion/react"
-import { SlidersHorizontal } from "lucide-react"
+import { Camera as CameraIcon, SlidersHorizontal } from "lucide-react"
+import { AlarmToasts, SnapshotFlash, useToasts } from "@/components/alarm-toasts"
+import { ClipPlayer } from "@/components/clip-player"
+import { EventsButton, EventsDrawer } from "@/components/events-drawer"
 import { CameraSwitcher } from "@/components/camera-switcher"
 import { EspMenu } from "@/components/esp-menu"
 import { Stage } from "@/components/stage"
@@ -9,8 +12,10 @@ import { LiveReadout, TelemetryBar } from "@/components/telemetry"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useCameraStatus } from "@/hooks/use-camera-status"
 import { useEspSettings } from "@/hooks/use-esp-settings"
+import { useEvents } from "@/hooks/use-events"
 import { useTargets } from "@/hooks/use-targets"
 import { useWorkspace } from "@/hooks/use-workspace"
+import { alertsApi, type AlarmEvent } from "@/lib/alerts"
 import { api } from "@/lib/api"
 import type { Camera, NBox } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -26,6 +31,13 @@ export default function App() {
   const [tool, setTool] = useState<Tool>("select")
   const [follow, setFollow] = useState(false)
   const [lockOverride, setLockOverride] = useState<{ id: number | null; at: number } | null>(null)
+  // alarms & events
+  const [eventsOpen, setEventsOpen] = useState(false)
+  const [playing, setPlaying] = useState<AlarmEvent | null>(null)
+  const [flash, setFlash] = useState(0)
+  const toast = useToasts()
+  const { push: pushToast } = toast
+  const ev = useEvents((fresh) => fresh.slice(0, 3).reverse().forEach((e) => toast.push({ key: `${e.camera}/${e.id}`, type: "alarm", event: e })))
 
   useEffect(() => {
     const mq = window.matchMedia("(min-width: 768px)")
@@ -78,6 +90,52 @@ export default function App() {
     [activeId],
   )
 
+  const { markSeen } = ev
+  useEffect(() => {
+    if (eventsOpen) markSeen()
+  }, [eventsOpen, ev.events, markSeen])
+
+  const snapshot = useCallback(async () => {
+    if (!activeId) return
+    setFlash((f) => f + 1)
+    try {
+      const { blob, name } = await alertsApi.snapshot(activeId)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = name
+      a.click()
+      window.setTimeout(() => URL.revokeObjectURL(url), 2000)
+      pushToast({ key: `snap-${Date.now()}`, type: "info", title: "Snapshot saved", detail: name })
+    } catch (e) {
+      pushToast({
+        key: `snap-${Date.now()}`,
+        type: "info",
+        tone: "error",
+        title: (e as Error).message === "no_frame" ? "No frame to save yet" : "Snapshot failed",
+      })
+    }
+  }, [activeId, pushToast])
+
+  // S saves a snapshot of the rendered frame, E toggles the events drawer.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement
+      if (t.closest("input, textarea, [role=combobox], [role=listbox]") || e.ctrlKey || e.metaKey || e.altKey) return
+      if (e.key === "s" || e.key === "S") void snapshot()
+      else if (e.key === "e" || e.key === "E") setEventsOpen((o) => !o)
+      else if (e.key === "Escape") setEventsOpen(false)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [snapshot])
+
+  const addTripwire = (a: [number, number], b: [number, number]) =>
+    activeId &&
+    void alertsApi.addTripwire(activeId, a, b).catch(() =>
+      toast.push({ key: `wire-${Date.now()}`, type: "info", tone: "error", title: "Could not create tripwire" }),
+    )
+
   const zoneAction = (fn: () => Promise<unknown>) => void fn().then(refresh, refresh)
   const zones = {
     list: status?.zones ?? [],
@@ -128,6 +186,7 @@ export default function App() {
                 onFollowChange={setFollow}
                 onLock={lock}
                 onZoneDrawn={addZone}
+                onTripwireDrawn={addTripwire}
                 rightInset={menuOpen && desktop ? 420 : undefined}
               />
 
@@ -144,6 +203,22 @@ export default function App() {
                   <CameraSwitcher cameras={cameras} activeId={activeId} onSelect={open} />
                 </div>
                 <LiveReadout status={status} live={live} />
+                <button
+                  type="button"
+                  onClick={() => void snapshot()}
+                  aria-label="Snapshot (S)"
+                  title="Snapshot (S)"
+                  disabled={!live}
+                  className="hidden size-9 shrink-0 place-items-center rounded-full border border-border/70 bg-background/70 text-foreground backdrop-blur-md transition-colors duration-300 hover:border-primary/60 active:scale-95 disabled:opacity-40 sm:grid"
+                >
+                  <CameraIcon className="size-4" />
+                </button>
+                <EventsButton
+                  open={eventsOpen}
+                  unread={eventsOpen ? 0 : ev.unread}
+                  alarm={ev.active.length > 0}
+                  onClick={() => setEventsOpen((o) => !o)}
+                />
                 <button
                   type="button"
                   onClick={() => setMenuOpen((o) => !o)}
@@ -171,6 +246,21 @@ export default function App() {
                 onToggleAi={() => activeId && void run(() => api.toggleYolo(activeId))}
                 onModelChange={(m) => activeId && void run(() => api.setModel(activeId, m))}
                 zones={zones}
+                onDrawTripwire={() => {
+                  setTool("tripwire")
+                  if (!desktop) setMenuOpen(false)
+                }}
+              />
+
+              <EventsDrawer
+                open={eventsOpen}
+                onClose={() => setEventsOpen(false)}
+                events={ev.events}
+                active={ev.active}
+                cameras={cameras}
+                seenTs={ev.seen}
+                onPlay={setPlaying}
+                onDelete={(e) => void ev.remove(e)}
               />
 
               <motion.footer
@@ -181,6 +271,23 @@ export default function App() {
               >
                 <TelemetryBar status={status} />
               </motion.footer>
+              <SnapshotFlash flashKey={flash} />
+              <AlarmToasts
+                toasts={toast.toasts}
+                onDismiss={toast.dismiss}
+                onOpen={(e) => {
+                  setPlaying(e)
+                  toast.dismiss(`${e.camera}/${e.id}`)
+                }}
+              />
+              <ClipPlayer
+                event={playing ? (ev.events.find((x) => x.id === playing.id && x.camera === playing.camera) ?? playing) : null}
+                onClose={() => setPlaying(null)}
+                onDelete={(e) => {
+                  setPlaying(null)
+                  void ev.remove(e)
+                }}
+              />
             </>
           )}
         </div>

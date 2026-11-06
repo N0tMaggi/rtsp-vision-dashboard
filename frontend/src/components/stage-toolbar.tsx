@@ -1,10 +1,10 @@
 import { AnimatePresence, motion } from "motion/react"
-import { Crosshair, Minus, MousePointer2, Plus, RotateCcw, SquareDashed, X } from "lucide-react"
+import { Crosshair, Minus, MousePointer2, Plus, RotateCcw, Slash, SquareDashed, X } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { Target } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-export type Tool = "select" | "zone"
+export type Tool = "select" | "zone" | "tripwire"
 
 interface Props {
   tool: Tool
@@ -25,7 +25,8 @@ const spring = { type: "spring", stiffness: 420, damping: 32 } as const
 
 export function StageToolbar(p: Props) {
   let hint: string
-  if (p.tool === "zone") hint = "Drag a rectangle to create a zone. Esc cancels."
+  if (p.tool === "tripwire") hint = "Drag a line to create a tripwire. Esc cancels."
+  else if (p.tool === "zone") hint = "Drag a rectangle to create a zone. Esc cancels."
   else if (!p.aiOn) hint = "Turn on detection to select objects."
   else if (p.hovered) hint = `${p.hovered.label} #${p.hovered.id} · click to lock, double-click to zoom`
   else hint = "Scroll to zoom, drag to pan, double-click to reset"
@@ -80,6 +81,9 @@ export function StageToolbar(p: Props) {
           </ToolButton>
           <ToolButton active={p.tool === "zone"} label="Draw Zone (Z)" onClick={() => p.onToolChange(p.tool === "zone" ? "select" : "zone")}>
             <SquareDashed className="size-4" />
+          </ToolButton>
+          <ToolButton active={p.tool === "tripwire"} label="Draw Tripwire (T)" onClick={() => p.onToolChange(p.tool === "tripwire" ? "select" : "tripwire")}>
+            <Slash className="size-4" />
           </ToolButton>
         </div>
 

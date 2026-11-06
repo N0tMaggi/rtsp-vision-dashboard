@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
-import { Box, Palette, Radar, Route, ScanFace, SquareDashed, Trash2, X } from "lucide-react"
+import { Box, Palette, Radar, Route, ScanFace, Siren, SquareDashed, Trash2, X } from "lucide-react"
+import { AlertsPanel } from "@/components/alerts-panel"
 import { OverlaysPanel } from "@/components/overlays-panel"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
@@ -28,6 +29,7 @@ const CATEGORIES = [
   { id: "face", label: "Faces & Hands", icon: ScanFace },
   { id: "track", label: "Tracking", icon: Route },
   { id: "zones", label: "Zones", icon: SquareDashed },
+  { id: "alarms", label: "Alarms", icon: Siren },
   { id: "overlays", label: "Overlays", icon: Radar },
   { id: "style", label: "Colors", icon: Palette },
 ] as const
@@ -46,6 +48,8 @@ interface Props {
   onModelChange: (model: string) => void
   busy: boolean
   zones: ZoneActions
+  /** Starts the tripwire tool (Alarms category). */
+  onDrawTripwire?: () => void
 }
 
 export interface ZoneActions {
@@ -56,7 +60,7 @@ export interface ZoneActions {
   onDelete: (id: string) => void
 }
 
-export function EspMenu({ open, onClose, status, models, settings, onUpdate, onToggleAi, onModelChange, busy, zones }: Props) {
+export function EspMenu({ open, onClose, status, models, settings, onUpdate, onToggleAi, onModelChange, busy, zones, onDrawTripwire }: Props) {
   const [category, setCategory] = useState<CategoryId>("visual")
   const offline = !status
   const aiOn = status?.yolo_enabled ?? false
@@ -164,7 +168,8 @@ export function EspMenu({ open, onClose, status, models, settings, onUpdate, onT
                   className="p-4"
                 >
                   <h2 className="mb-3 text-base font-medium">{CATEGORIES.find((c) => c.id === category)?.label}</h2>
-                  <CategoryBody category={category} settings={settings} onUpdate={onUpdate} zones={zones} cameraId={status?.camera.id} />
+                  <CategoryBody category={category} settings={settings} onUpdate={onUpdate} zones={zones}
+                    cameraId={status?.camera.id ?? null} onDrawTripwire={onDrawTripwire} />
                 </motion.div>
               </AnimatePresence>
             </div>
@@ -185,12 +190,14 @@ function CategoryBody({
   onUpdate,
   zones,
   cameraId,
+  onDrawTripwire,
 }: {
   category: CategoryId
   settings: EspSettings
   onUpdate: Update
   zones: ZoneActions
-  cameraId?: string
+  cameraId: string | null
+  onDrawTripwire?: () => void
 }) {
   const sliders = (keys: string[]) => SLIDERS.filter((s) => keys.includes(s.key))
   switch (category) {
@@ -246,9 +253,14 @@ function CategoryBody({
         </>
       )
     case "overlays":
-      return <OverlaysPanel cameraId={cameraId} settings={settings} onUpdate={onUpdate} />
+      return <OverlaysPanel cameraId={cameraId ?? undefined} settings={settings} onUpdate={onUpdate} />
     case "zones":
       return <ZonesPanel settings={settings} onUpdate={onUpdate} zones={zones} />
+    case "alarms":
+      return (
+        <AlertsPanel cameraId={cameraId} settings={settings} onUpdate={onUpdate} zones={zones.list}
+          onDrawTripwire={onDrawTripwire ?? (() => {})} />
+      )
     case "style":
       return (
         <>
@@ -308,7 +320,7 @@ function SegmentPicker({
   )
 }
 
-function ToggleList({ items, settings, onUpdate }: { items: ToggleDef[]; settings: EspSettings; onUpdate: Update }) {
+export function ToggleList({ items, settings, onUpdate }: { items: ToggleDef[]; settings: EspSettings; onUpdate: Update }) {
   return (
     <ul className="-mx-2">
       {items.map((t) => {
@@ -330,7 +342,7 @@ function ToggleList({ items, settings, onUpdate }: { items: ToggleDef[]; setting
   )
 }
 
-function SliderList({ items, settings, onUpdate }: { items: SliderDef[]; settings: EspSettings; onUpdate: Update }) {
+export function SliderList({ items, settings, onUpdate }: { items: SliderDef[]; settings: EspSettings; onUpdate: Update }) {
   return (
     <div className="mt-4 space-y-5 border-t border-border pt-4">
       {items.map((s) => {

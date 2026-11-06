@@ -46,6 +46,7 @@ NUMERIC_KEYS: dict[str, tuple[float, float, str]] = {
     "jpeg_quality": (30, 95, "int"),
     "heatmap_opacity": (0.0, 1.0, "float"),
     "loiter_seconds": (5, 3600, "int"),
+    "abandoned_seconds": (5, 600, "int"),
 }
 
 
