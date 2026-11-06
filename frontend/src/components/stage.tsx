@@ -20,6 +20,8 @@ interface Props {
   onFollowChange: (follow: boolean) => void
   onLock: (id: number | null) => void
   onZoneDrawn: (box: NBox) => void
+  /** Tripwire tool finished a line (normalized points). */
+  onTripwireDrawn?: (a: [number, number], b: [number, number]) => void
   /** Space kept free on the right (e.g. for the open ESP menu), in px. */
   rightInset?: number
 }
@@ -59,6 +61,7 @@ type Gesture =
   | { kind: "none" }
   | { kind: "press"; startX: number; startY: number; lastX: number; lastY: number; panning: boolean }
   | { kind: "draw"; start: [number, number] }
+  | { kind: "line"; start: [number, number] }
 
 /**
  * Full-bleed camera view with digital zoom, click-to-lock and zone drawing.
@@ -75,6 +78,7 @@ export function Stage(props: Props) {
   const [box, setBox] = useState({ w: 0, h: 0 })
   const [hoverId, setHoverId] = useState<number | null>(null)
   const [draft, setDraft] = useState<NBox | null>(null)
+  const [lineDraft, setLineDraft] = useState<NBox | null>(null)
   const [panning, setPanning] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const gesture = useRef<Gesture>({ kind: "none" })
@@ -158,6 +162,9 @@ export function Stage(props: Props) {
     if (tool === "zone") {
       gesture.current = { kind: "draw", start: [u, v] }
       setDraft([u, v, u, v])
+    } else if (tool === "tripwire") {
+      gesture.current = { kind: "line", start: [u, v] }
+      setLineDraft([u, v, u, v])
     } else {
       gesture.current = { kind: "press", startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastY: e.clientY, panning: false }
     }
@@ -167,6 +174,10 @@ export function Stage(props: Props) {
     const g = gesture.current
     const [px, py] = local(e)
     const [u, v] = toNormalized(px, py)
+    if (g.kind === "line") {
+      setLineDraft([g.start[0], g.start[1], Math.min(1, Math.max(0, u)), Math.min(1, Math.max(0, v))])
+      return
+    }
     if (g.kind === "draw") {
       const cu = Math.min(1, Math.max(0, u))
       const cv = Math.min(1, Math.max(0, v))
@@ -197,6 +208,15 @@ export function Stage(props: Props) {
     const g = gesture.current
     gesture.current = { kind: "none" }
     setPanning(false)
+    if (g.kind === "line") {
+      setLineDraft(null)
+      const [px, py] = local(e)
+      const [u, v] = toNormalized(px, py)
+      const b: [number, number] = [Math.min(1, Math.max(0, u)), Math.min(1, Math.max(0, v))]
+      if (Math.hypot(b[0] - g.start[0], b[1] - g.start[1]) > 0.02) props.onTripwireDrawn?.(g.start, b)
+      onToolChange("select")
+      return
+    }
     if (g.kind === "draw") {
       setDraft(null)
       const [px, py] = local(e)
@@ -236,6 +256,7 @@ export function Stage(props: Props) {
       const k = e.key.toLowerCase()
       if (k === "v") onToolChange("select")
       else if (k === "z") onToolChange(tool === "zone" ? "select" : "zone")
+      else if (k === "t") onToolChange(tool === "tripwire" ? "select" : "tripwire")
       else if (k === "f" && lockedId !== null) onFollowChange(!follow)
       else if (k === "0") {
         onFollowChange(false)
@@ -243,11 +264,12 @@ export function Stage(props: Props) {
       } else if (k === "+" || k === "=") zoomAt(rect.width / 2, rect.height / 2, 1.4)
       else if (k === "-") zoomAt(rect.width / 2, rect.height / 2, 1 / 1.4)
       else if (k === "escape") {
-        if (gesture.current.kind === "draw") {
+        if (gesture.current.kind === "draw" || gesture.current.kind === "line") {
           gesture.current = { kind: "none" }
           setDraft(null)
+          setLineDraft(null)
         }
-        if (tool === "zone") onToolChange("select")
+        if (tool === "zone" || tool === "tripwire") onToolChange("select")
       }
     }
     window.addEventListener("keydown", onKey)
@@ -263,7 +285,7 @@ export function Stage(props: Props) {
 
   const hovered = tool === "select" && hoverId !== lockedId ? (list.find((t) => t.id === hoverId) ?? null) : null
   const cursor =
-    tool === "zone"
+    tool === "zone" || tool === "tripwire"
       ? "cursor-crosshair"
       : panning
         ? "cursor-grabbing"
@@ -345,6 +367,7 @@ export function Stage(props: Props) {
               vectorEffect="non-scaling-stroke"
             />
           )}
+          {lineDraft && <TripwireDraft line={lineDraft} aspect={frameW && frameH ? frameW / frameH : 16 / 9} />}
         </svg>
       </motion.div>
       </motion.div>
@@ -457,5 +480,34 @@ function Ellipsis() {
         </motion.span>
       ))}
     </span>
+  )
+}
+
+/** Line being drawn with the tripwire tool, plus the "in" arrow (a→b rotated 90° clockwise on screen). */
+function TripwireDraft({ line, aspect }: { line: NBox; aspect: number }) {
+  const [ax, ay, bx, by] = line
+  // work in an aspect-correct space (x scaled by aspect) so the arrow is perpendicular on screen
+  const dx = (bx - ax) * aspect
+  const dy = by - ay
+  const len = Math.hypot(dx, dy)
+  const mx = (ax + bx) / 2
+  const my = (ay + by) / 2
+  let arrow: string | null = null
+  if (len > 0.02) {
+    const nx = -dy / len
+    const ny = dx / len
+    const L = 0.05
+    const tip = [mx + (nx * L) / aspect, my + ny * L]
+    const head = 0.018
+    const left = [tip[0] - ((nx * head - ny * head * 0.7) / aspect), tip[1] - (ny * head + nx * head * 0.7)]
+    const right = [tip[0] - ((nx * head + ny * head * 0.7) / aspect), tip[1] - (ny * head - nx * head * 0.7)]
+    arrow = `M${mx},${my} L${tip[0]},${tip[1]} M${left[0]},${left[1]} L${tip[0]},${tip[1]} L${right[0]},${right[1]}`
+  }
+  return (
+    <g>
+      <line x1={ax} y1={ay} x2={bx} y2={by} stroke="#222427" strokeWidth={5} strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+      <line x1={ax} y1={ay} x2={bx} y2={by} stroke="#ffd21f" strokeWidth={2.5} strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+      {arrow && <path d={arrow} fill="none" stroke="#ffd21f" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />}
+    </g>
   )
 }
