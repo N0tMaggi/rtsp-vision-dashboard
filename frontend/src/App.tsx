@@ -3,6 +3,7 @@ import { MotionConfig, motion } from "motion/react"
 import { SlidersHorizontal } from "lucide-react"
 import { CameraSwitcher } from "@/components/camera-switcher"
 import { EspMenu } from "@/components/esp-menu"
+import { useOperation } from "@/components/operation"
 import { Stage } from "@/components/stage"
 import type { Tool } from "@/components/stage-toolbar"
 import { LiveReadout, TelemetryBar } from "@/components/telemetry"
@@ -105,6 +106,8 @@ export default function App() {
   const streamError = status?.stream_error || error || null
   const live = Boolean(camera?.has_stream && status && !streamError)
   const modelList = status?.available_models?.length ? status.available_models : models
+  const rightInset = menuOpen && desktop ? 420 : undefined
+  const ops = useOperation({ cameras, activeId, open, refresh, menuOpen, rightInset: rightInset ?? 24 })
 
   return (
     <MotionConfig reducedMotion="user">
@@ -116,6 +119,9 @@ export default function App() {
             </p>
           ) : (
             <>
+              {ops.grid}
+              {ops.mode === "single" && (
+              <motion.div layoutId={activeId ? `cam-${activeId}` : undefined} transition={{ type: "spring", stiffness: 300, damping: 34 }} className="absolute inset-0">
               <Stage
                 camera={camera}
                 error={camera?.has_stream ? streamError : null}
@@ -128,8 +134,12 @@ export default function App() {
                 onFollowChange={setFollow}
                 onLock={lock}
                 onZoneDrawn={addZone}
-                rightInset={menuOpen && desktop ? 420 : undefined}
+                rightInset={rightInset}
+                onAimAt={ops.onAimAt}
               />
+              </motion.div>
+              )}
+              {ops.overlay}
 
               <motion.header
                 initial={{ opacity: 0, y: -12 }}
@@ -143,6 +153,7 @@ export default function App() {
                 <div className="min-w-0 flex-1">
                   <CameraSwitcher cameras={cameras} activeId={activeId} onSelect={open} />
                 </div>
+                {ops.viewToggle}
                 <LiveReadout status={status} live={live} />
                 <button
                   type="button"
@@ -171,6 +182,8 @@ export default function App() {
                 onToggleAi={() => activeId && void run(() => api.toggleYolo(activeId))}
                 onModelChange={(m) => activeId && void run(() => api.setModel(activeId, m))}
                 zones={zones}
+                extraCategories={ops.extraCategories}
+                onCategoryChange={ops.onCategoryChange}
               />
 
               <motion.footer

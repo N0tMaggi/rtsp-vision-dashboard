@@ -314,7 +314,14 @@ class ImportExportTests(unittest.TestCase):
         paths = {d["path"]: d for d in body["diff"]}
         self.assertEqual(paths["cameras.front.esp_settings.tracers"]["after"], True)
         self.assertEqual(paths["cameras.front.esp_settings.line_thickness"]["after"], 6)
+        self.assertEqual(paths["presets.presets[day].name"]["after"], "Sunny")
         self.assertFalse(state.camera_states["front"].esp_settings["tracers"])   # preview changes nothing
+
+        removed = json.loads(json.dumps(doc))
+        removed["sections"]["presets"]["presets"] = [p for p in removed["sections"]["presets"]["presets"] if p["id"] != "minimal"]
+        r = self.client.post("/api/settings/import?dry_run=1", json=removed)
+        kinds = {d["path"]: d["kind"] for d in r.get_json()["diff"]}
+        self.assertEqual(kinds["presets.presets[minimal]"], "removed")
 
         r = self.client.post("/api/settings/import", data=json.dumps(doc), content_type="application/json")
         self.assertTrue(r.get_json()["ok"])

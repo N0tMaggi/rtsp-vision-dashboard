@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, type ComponentType, type ReactNode } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { Box, Palette, Route, ScanFace, SquareDashed, Trash2, X } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -44,6 +44,16 @@ interface Props {
   onModelChange: (model: string) => void
   busy: boolean
   zones: ZoneActions
+  /** Extra categories appended to the rail (id, label, icon, panel content). */
+  extraCategories?: ExtraCategory[]
+  onCategoryChange?: (id: string) => void
+}
+
+export interface ExtraCategory {
+  id: string
+  label: string
+  icon: ComponentType<{ className?: string }>
+  body: ReactNode
 }
 
 export interface ZoneActions {
@@ -54,8 +64,14 @@ export interface ZoneActions {
   onDelete: (id: string) => void
 }
 
-export function EspMenu({ open, onClose, status, models, settings, onUpdate, onToggleAi, onModelChange, busy, zones }: Props) {
-  const [category, setCategory] = useState<CategoryId>("visual")
+export function EspMenu({ open, onClose, status, models, settings, onUpdate, onToggleAi, onModelChange, busy, zones, extraCategories, onCategoryChange }: Props) {
+  const [category, setCategoryState] = useState<string>("visual")
+  const setCategory = (id: string) => {
+    setCategoryState(id)
+    onCategoryChange?.(id)
+  }
+  const allCategories = [...CATEGORIES, ...(extraCategories ?? [])]
+  const extra = extraCategories?.find((c) => c.id === category)
   const offline = !status
   const aiOn = status?.yolo_enabled ?? false
   const aiAvailable = status?.yolo_available ?? false
@@ -118,8 +134,8 @@ export function EspMenu({ open, onClose, status, models, settings, onUpdate, onT
 
           <div className="flex min-h-0 flex-1">
             {/* Category rail */}
-            <nav className="flex flex-col gap-1 border-r border-border p-2" aria-label="Categories">
-              {CATEGORIES.map(({ id, label, icon: Icon }) => {
+            <nav className="flex flex-col gap-1 overflow-y-auto border-r border-border p-2" aria-label="Categories">
+              {allCategories.map(({ id, label, icon: Icon }) => {
                 const active = id === category
                 return (
                   <Tooltip key={id}>
@@ -161,8 +177,8 @@ export function EspMenu({ open, onClose, status, models, settings, onUpdate, onT
                   transition={{ duration: 0.22, ease }}
                   className="p-4"
                 >
-                  <h2 className="mb-3 text-base font-medium">{CATEGORIES.find((c) => c.id === category)?.label}</h2>
-                  <CategoryBody category={category} settings={settings} onUpdate={onUpdate} zones={zones} />
+                  <h2 className="mb-3 text-base font-medium">{allCategories.find((c) => c.id === category)?.label}</h2>
+                  {extra ? extra.body : <CategoryBody category={category as CategoryId} settings={settings} onUpdate={onUpdate} zones={zones} />}
                 </motion.div>
               </AnimatePresence>
             </div>

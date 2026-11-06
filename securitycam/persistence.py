@@ -306,12 +306,31 @@ _MISSING = object()
 _MAX_DIFF = 500
 
 
+def _id_list(value: Any) -> bool:
+    return isinstance(value, list) and all(isinstance(x, dict) and "id" in x for x in value)
+
+
 def _diff_values(path: str, old: Any, new: Any, out: list[dict[str, Any]]) -> None:
     if len(out) >= _MAX_DIFF:
         return
     if isinstance(old, dict) and isinstance(new, dict):
         for key in sorted(set(old) | set(new), key=str):
             _diff_values(f"{path}.{key}", old.get(key, _MISSING), new.get(key, _MISSING), out)
+        return
+    if _id_list(old) and _id_list(new):
+        # Lists of records (presets, schedules, zones) are replaced as a whole on
+        # import: diff per record id and report removed records too.
+        old_by_id = {str(x["id"]): x for x in old}
+        new_by_id = {str(x["id"]): x for x in new}
+        for key in sorted(set(old_by_id) | set(new_by_id)):
+            if key not in new_by_id:
+                if len(out) < _MAX_DIFF:
+                    out.append({"path": f"{path}[{key}]", "before": old_by_id[key], "after": None, "kind": "removed"})
+            elif key not in old_by_id:
+                if len(out) < _MAX_DIFF:
+                    out.append({"path": f"{path}[{key}]", "before": None, "after": new_by_id[key], "kind": "added"})
+            else:
+                _diff_values(f"{path}[{key}]", old_by_id[key], new_by_id[key], out)
         return
     if old == new:
         return
