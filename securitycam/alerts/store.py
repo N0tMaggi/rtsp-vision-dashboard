@@ -5,6 +5,10 @@ Per camera::
     {"zone_rules": {"z1": {...rule...}}, "tripwires": [{...}], "tripwire_seq": 3,
      "abandoned_notify": true}
 
+Tripwires also store ``anchor`` (camera pose ``{pan, tilt, zoom}`` they were
+drawn at, see ``securitycam/anchor.py``); files written before world anchoring
+get the pose known at load time.
+
 Readers (the per-frame engine) get the current per-camera dict via
 ``camera_config``. Those dicts are never mutated: every change builds a new
 one and swaps it in, so no locking is needed on the render path.
@@ -127,6 +131,15 @@ def _point(value: Any) -> list[float]:
     return [round(min(1.0, max(0.0, float(v))), 5) for v in value]
 
 
+def _anchor(value: Any) -> dict:
+    from ..geo import pose_from
+
+    pose = pose_from(value)
+    if pose is None:
+        raise AlertInputError("invalid_anchor")
+    return pose.as_dict()
+
+
 def parse_tripwire(data: Any, current: Optional[dict] = None) -> dict:
     if not isinstance(data, dict):
         raise AlertInputError("invalid_tripwire")
@@ -137,6 +150,9 @@ def parse_tripwire(data: Any, current: Optional[dict] = None) -> dict:
         if math.hypot(b[0] - a[0], b[1] - a[1]) < WIRE_MIN_LEN:
             raise AlertInputError("line_too_short")
         out["a"], out["b"] = a, b
+        out.pop("anchor", None)          # new geometry: anchored at the pose sent along (if any)
+    if data.get("anchor") is not None:
+        out["anchor"] = _anchor(data["anchor"])
     if "label" in data:
         out["label"] = _label(data["label"], out.get("label", ""))
     if "trigger" in data:
@@ -164,6 +180,15 @@ def parse_tripwire(data: Any, current: Optional[dict] = None) -> dict:
 
 
 # ----------------------------------------------------------------------------- store
+def _default_anchor(camera_id: str) -> Optional[dict]:
+    """Pose for tripwires saved before world anchoring (the camera's pose right now)."""
+    try:
+        from ..anchor import default_wire_anchor
+        return default_wire_anchor(camera_id)
+    except Exception:
+        return None
+
+
 def _empty_camera() -> dict:
     return {"zone_rules": {}, "tripwires": [], "tripwire_seq": 0, "abandoned_notify": True}
 
@@ -191,6 +216,7 @@ class AlertStore:
         except (OSError, ValueError) as exc:
             print(f"[Alerts] Could not read {self.path.name}: {exc.__class__.__name__} - starting empty.")
             return
+        migrated = False
         for cid, cam in (raw.get("cameras") or {}).items():
             if not isinstance(cid, str) or not isinstance(cam, dict):
                 continue
@@ -208,11 +234,18 @@ class AlertStore:
                 if isinstance(w.get("id"), str):
                     wire["id"] = w["id"]
                     wire.setdefault("label", w["id"])
+                    if "anchor" not in wire:
+                        anchor = _default_anchor(cid)
+                        if anchor is not None:
+                            wire["anchor"] = anchor
+                            migrated = True
                     c["tripwires"].append(wire)
             seq = cam.get("tripwire_seq")
             c["tripwire_seq"] = seq if isinstance(seq, int) and seq >= 0 else len(c["tripwires"])
             c["abandoned_notify"] = bool(cam.get("abandoned_notify", True))
             self._cams[cid] = c
+        if migrated:
+            self._save_locked()
 
     def _save_locked(self) -> None:
         self.version += 1
@@ -281,6 +314,13 @@ class AlertStore:
             cam["tripwires"].append(wire)
             self._commit_locked(camera_id, cam)
             return copy.deepcopy(wire)
+
+    def get_tripwire(self, camera_id: str, wire_id: str) -> Optional[dict]:
+        with self._lock:
+            for w in self._cam_locked(camera_id)["tripwires"]:
+                if w["id"] == wire_id:
+                    return copy.deepcopy(w)
+        return None
 
     def update_tripwire(self, camera_id: str, wire_id: str, data: Any) -> Optional[dict]:
         with self._lock:

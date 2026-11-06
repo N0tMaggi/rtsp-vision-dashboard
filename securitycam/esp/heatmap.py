@@ -9,6 +9,9 @@ Rendering blurs and normalizes the grid, maps it through a theme colormap
 (anthracite -> signal yellow -> white, alpha rising with heat) and caches the
 premultiplied overlay per (window, size, opacity) for ``RENDER_EVERY_S``; the
 per-frame cost is one uint8 multiply + add over the bounding box of the heat.
+
+PTZ cameras with world anchoring accumulate into an azimuth / elevation grid
+instead (``heatmap_world.py``) and draw the part the camera currently sees.
 """
 from __future__ import annotations
 
@@ -19,6 +22,8 @@ from typing import Dict, Optional, Tuple
 
 import cv2
 import numpy as np
+
+from . import heatmap_world as HW
 
 WINDOWS: Dict[str, float] = {"5m": 300.0, "1h": 3600.0, "24h": 86400.0}
 DEFAULT_WINDOW = "1h"
@@ -52,6 +57,7 @@ class HeatState:
     last_t: Optional[float] = None
     total_s: Dict[str, float] = field(default_factory=dict)   # decayed observed time
     cache: Dict[tuple, tuple] = field(default_factory=dict)   # overlay cache
+    world: HW.WorldHeat = field(default_factory=HW.WorldHeat)  # PTZ: world-space grids
 
 
 def get_state(camera_state) -> HeatState:
@@ -74,12 +80,40 @@ def _ensure(hs: HeatState, fw: int, fh: int) -> None:
 _SPLAT = np.array([[1, 2, 1], [2, 4, 2], [1, 2, 1]], np.float64) / 16.0
 
 
+def _view(camera_state, t):
+    from .. import anchor
+    return anchor.view_for(camera_state, t)
+
+
+def _accumulate_world(camera_state, hs: HeatState, mst, t_now: float, view) -> None:
+    from .. import anchor, geo
+    hs.world.ensure(WINDOWS)
+    last = hs.last_t
+    hs.last_t = t_now
+    if last is None or t_now <= last:
+        return
+    dt = min(t_now - last, MAX_STEP_S)
+    fw, fh = float(mst.frame_w), float(mst.frame_h)
+    rays = []
+    for tr in mst.tracks.values():
+        if tr.missing_since is not None:
+            continue
+        o = tr.obs
+        uv = (((o[0] + o[2]) * 0.5) / fw, o[3] / fh)
+        rays.append(geo.image_to_rays((uv,), anchor.pose_at(camera_state, tr.obs_t), view.lens)[0])
+    HW.accumulate(hs.world, WINDOWS, np.asarray(rays).reshape(-1, 3), dt)
+
+
 def accumulate(camera_state, mst, t_now: float) -> None:
     """Add the time since the last call at every live track's foot point (ESP lock held)."""
     fw, fh = mst.frame_w, mst.frame_h
     if fw <= 0 or fh <= 0:
         return
     hs = get_state(camera_state)
+    view = _view(camera_state, t_now)
+    if view.active:
+        _accumulate_world(camera_state, hs, mst, t_now, view)
+        return
     _ensure(hs, fw, fh)
     last = hs.last_t
     hs.last_t = t_now
@@ -117,11 +151,24 @@ def reset(camera_state) -> None:
     for k in hs.total_s:
         hs.total_s[k] = 0.0
     hs.cache.clear()
+    hs.world.reset()
 
 
-def normalized(camera_state, window: str) -> Optional[np.ndarray]:
-    """Blurred heat in 0..1 (float32, grid resolution), or None if nothing accumulated."""
+def normalized(camera_state, window: str, view=None) -> Optional[np.ndarray]:
+    """Blurred heat in 0..1 (float32, grid resolution), or None if nothing accumulated.
+
+    PTZ (anchoring active): the world heat visible in the current view.
+    """
     hs = get_state(camera_state)
+    view = view if view is not None else _view(camera_state, None)
+    if view.active:
+        if not hs.world.grids:
+            return None
+        fw = max(1, getattr(getattr(camera_state, "esp_motion", None), "frame_w", 0) or 16)
+        fh = max(1, getattr(getattr(camera_state, "esp_motion", None), "frame_h", 0) or 9)
+        gh = max(8, int(round(GRID_W * fh / fw)))
+        win = window if window in WINDOWS else DEFAULT_WINDOW
+        return HW.view_heat(hs.world, win, view.pose, view.lens, GRID_W, gh, time.perf_counter())
     g = hs.grids.get(window if window in WINDOWS else DEFAULT_WINDOW)
     if g is None:
         return None
@@ -173,13 +220,72 @@ def _overlay(camera_state, window: str, w: int, h: int, opacity: float, t_now: f
     return result
 
 
+def _upscale(pre_q: np.ndarray, inv_q: np.ndarray, w: int, h: int):
+    """Crop quarter-res premultiplied layers to the visible heat and scale them to the frame."""
+    sh, sw = inv_q.shape[:2]
+    ys, xs = np.nonzero(inv_q[:, :, 0] <= 255 - MIN_ALPHA)
+    if not len(xs):
+        return None
+    sx0, sx1 = max(0, int(xs.min()) - 1), min(sw, int(xs.max()) + 2)
+    sy0, sy1 = max(0, int(ys.min()) - 1), min(sh, int(ys.max()) + 2)
+    kx, ky = w / sw, h / sh
+    x0, x1 = int(sx0 * kx), min(w, int(math.ceil(sx1 * kx)))
+    y0, y1 = int(sy0 * ky), min(h, int(math.ceil(sy1 * ky)))
+    if x1 <= x0 or y1 <= y0:
+        return None
+    pre = cv2.resize(pre_q[sy0:sy1, sx0:sx1], (x1 - x0, y1 - y0), interpolation=cv2.INTER_LINEAR)
+    inv = cv2.resize(inv_q[sy0:sy1, sx0:sx1], (x1 - x0, y1 - y0), interpolation=cv2.INTER_LINEAR)
+    return (x0, y0, x1, y1, pre, inv)
+
+
+def _overlay_world(camera_state, window: str, w: int, h: int, opacity: float, t_now: float, view):
+    """World heat for the frame's view: resampled every RENDER_EVERY_S (faster while moving), and
+    in between the cached quarter-res layers are warped by the camera rotation."""
+    from .. import geo
+    hs = get_state(camera_state)
+    win = window if window in WINDOWS else DEFAULT_WINDOW
+    key = ("world", win, w, h, round(opacity, 3))
+    hit = hs.cache.get(key)
+    moving = view.speed > 0.35
+    max_age = HW.MOVING_REFRESH_S if moving else RENDER_EVERY_S
+    sw, sh = max(1, w // 4), max(1, h // 4)
+    if hit is None or t_now - hit[0] >= max_age or t_now < hit[0]:
+        gh = max(8, int(round(GRID_W * h / max(w, 1))))
+        heat = HW.view_heat(hs.world, win, view.pose, view.lens, GRID_W, gh, t_now, max_age)
+        layers = full = None
+        if heat is not None:
+            col, alpha = colorize(heat, (sw, sh), opacity)
+            a = alpha[:, :, None]
+            pre_q = (col * a + 0.5).astype(np.uint8)
+            inv_q = np.repeat(((1.0 - a) * 255.0 + 0.5).astype(np.uint8), 3, axis=2)
+            layers = (pre_q, inv_q)
+            full = _upscale(pre_q, inv_q, w, h)
+        hit = (t_now, view.pose, layers, full)
+        hs.cache = {key: hit}
+    _t, pose_c, layers, full = hit
+    if layers is None or pose_c.close_to(view.pose, 1e-7):
+        return full
+    hmat = geo.homography(pose_c, view.pose, view.lens, (sw, sh), (sw, sh))
+    if hmat is None:
+        return None
+    pre_q = cv2.warpPerspective(layers[0], hmat, (sw, sh), flags=cv2.INTER_LINEAR,
+                                borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0))
+    inv_q = cv2.warpPerspective(layers[1], hmat, (sw, sh), flags=cv2.INTER_LINEAR,
+                                borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
+    return _upscale(pre_q, inv_q, w, h)
+
+
 def draw(frame: np.ndarray, camera_state, window: str, opacity: float, t_now: float) -> None:
     """Blend the heat overlay onto ``frame`` in place (call outside the ESP lock is fine:
     the cache read races only with itself in the single render thread per camera)."""
     if opacity <= 0.0:
         return
     h, w = frame.shape[:2]
-    ov = _overlay(camera_state, window, w, h, opacity, t_now)
+    view = _view(camera_state, t_now)
+    if view.active:
+        ov = _overlay_world(camera_state, window, w, h, opacity, t_now, view)
+    else:
+        ov = _overlay(camera_state, window, w, h, opacity, t_now)
     if ov is None:
         return
     x0, y0, x1, y1, pre, inv = ov
@@ -206,9 +312,12 @@ def png_bytes(camera_state, window: str, width: int = 0) -> Optional[bytes]:
 
 def info(camera_state) -> dict:
     hs = get_state(camera_state)
+    world = _view(camera_state, None).active
+    totals = hs.world.total_s if world else hs.total_s
     return {
         "windows": list(WINDOWS),
-        "grid": [GRID_W, hs.grid_h],
-        "observed_s": {k: round(v, 1) for k, v in hs.total_s.items()},
+        "grid": [HW.AZ_CELLS, HW.EL_CELLS] if world else [GRID_W, hs.grid_h],
+        "space": "world" if world else "image",
+        "observed_s": {k: round(v, 1) for k, v in totals.items()},
         "updated": time.time() if hs.last_t is not None else None,
     }

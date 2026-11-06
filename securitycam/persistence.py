@@ -487,6 +487,9 @@ def load_cameras(clean: dict[str, Any]) -> None:
             with _esp_lock(cs):
                 cs.esp_zones[:] = [dict(z) for z in item["zones"]]
                 cs.esp_zone_seq = max(int(item.get("zone_seq", 0)), int(cs.esp_zone_seq))
+                # zones saved before world anchoring: anchor them at the pose known now
+                from .anchor import ensure_zone_anchors
+                ensure_zone_anchors(cs)
 
 
 # ---------------------------------------------------------------------------- module API

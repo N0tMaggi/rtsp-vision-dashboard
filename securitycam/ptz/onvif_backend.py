@@ -149,6 +149,26 @@ class OnvifBackend:
     def goto_home(self) -> None:
         self.ptz.GotoHomePosition({"ProfileToken": self.token})
 
+    def get_position(self) -> dict[str, Any] | None:
+        """Absolute position from ``GetStatus`` in ONVIF generic space (pan/tilt -1..1, zoom 0..1).
+
+        Returns None when the camera reports no position. ``moving`` is True/False
+        from MoveStatus, or None if the camera does not say.
+        """
+        status = self.ptz.GetStatus({"ProfileToken": self.token})
+        position = _get(status, "Position")
+        pan_tilt = _get(position, "PanTilt")
+        x, y = _get(pan_tilt, "x"), _get(pan_tilt, "y")
+        if x is None or y is None:
+            return None
+        zoom = _get(_get(position, "Zoom"), "x")
+        move = _get(status, "MoveStatus")
+        state = _get(move, "PanTilt", move if isinstance(move, str) else None)
+        moving = None
+        if isinstance(state, str):
+            moving = state.strip().upper() == "MOVING" if state.strip().upper() in ("MOVING", "IDLE") else None
+        return {"x": float(x), "y": float(y), "zoom": None if zoom is None else float(zoom), "moving": moving}
+
 
 AUTH_MARKERS = (
     "notauthorized", "not authorized", "unauthorized", "401", "authority failure",

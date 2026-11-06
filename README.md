@@ -368,6 +368,22 @@ Without it the **PTZ** menu category only shows this hint. ONVIF logs in with th
 | `SECURITYCAM_ONVIF_TIMEOUT` | no | `5` | Seconds per ONVIF call |
 | `SECURITYCAM_PTZ_FOV_H` / `_FOV_V` | no | `100` / `56` | Field of view (degrees) for right-click centering; tune in the UI |
 | `SECURITYCAM_PTZ_PAN_RANGE` / `_TILT_RANGE` | no | `360` / `114` | Mechanical range that ONVIF's generic -1..1 relative move spans |
+| `SECURITYCAM_PTZ_ZOOM_MAX` | no | `1` | Optical zoom factor at ONVIF zoom 1.0 (only for reading the absolute zoom; 1 = no optical zoom) |
+
+#### World-anchored overlays
+
+On a PTZ camera, zones, tripwires, the heatmap and abandoned-object markers stay on their spot **in the room** while the camera pans, tilts or zooms (ESP setting `world_anchor`, on by default; the PTZ panel shows it as **Anchor Overlays**). Fixed cameras are not affected.
+
+- **Pose estimate** per camera (`securitycam/ptz/pose.py`), fused from
+  - the picture: features of a keyframe (320 px gray, detection boxes masked) are tracked with Lucas-Kanade, people/cars are rejected with RANSAC, pan/tilt (and zoom if the camera has one) are solved on the pinhole model. Against a keyframe instead of frame-to-frame, so a still camera never drifts; ~1.5 ms per 1080p frame while moving, every third frame when idle;
+  - the camera's absolute position (ONVIF `GetStatus`, polled by the PTZ worker: fast while moving, every 10 s when idle). Readings are averaged once the camera has settled and slowly pull the pose back (at most 2°/s), which removes vision drift. Cameras that report nothing, a frozen value or an inverted axis are detected and the picture is used alone;
+  - commanded moves (relative move / right-click center, saved positions) when the picture had too little detail during the move.
+- **Geometry** (`securitycam/geo.py`, `securitycam/anchor.py`): each shape keeps the image coordinates it was drawn with plus the camera pose at that moment; together with the FOV calibration that defines fixed world directions (azimuth / elevation). Every frame they are projected into the current view (zones become polygons, parts outside the picture are clipped). Tripwire crossings are evaluated in the view the wire was drawn in, with each track point mapped through the pose of the frame it was seen in, so a pan cannot fake a crossing; zone dwell and abandoned objects pause while the camera turns fast (> 15°/s). The heatmap accumulates in an azimuth/elevation grid.
+- **PTZ panel**: status (source ONVIF / Vision, pan/tilt/FOV, drift), **Re-anchor Here** (accept the current alignment, clear the drift estimate), **Sync To Camera** (snap to the camera's reported position) and **Calibrate FOV** (pans 20° and back and compares the picture motion with the commanded / reported angle; the FOV sliders do the same by hand: after a change, pan a little and check that a zone stays put).
+- Zones and tripwires saved before this feature are anchored at the pose known when they are loaded (the home view if unknown).
+- API: clients keep sending normalized coordinates of what they see; the server anchors them at the current pose. Zone responses (`/zones`, `/status`) give `box` as the bounding box in the current view plus `polygon` (clipped outline), `in_view`, `drawn_box`, `anchor` and `world` (corner azimuth/elevation); `/targets` carries `pose` (pan, tilt, effective FOV) for the radar, which then shows world bearings.
+
+Accuracy depends on the FOV calibration and on the lens: wide-angle barrel distortion is not modelled, so shapes near the picture edge can be a few pixels off during a pan.
 
 ## API Reference
 
@@ -458,7 +474,11 @@ All bodies are JSON (`Content-Type: application/json`); non-JSON bodies are reje
 | `POST /api/cameras/<id>/ptz/center` | `{u, v}` normalized frame point; relative move that centers it. |
 | `POST /api/cameras/<id>/ptz/home` | Home position (if supported). |
 | `POST /api/cameras/<id>/ptz/presets`, `POST .../presets/<token>/goto`, `DELETE .../presets/<token>` | Camera-side PTZ positions. |
-| `PATCH /api/cameras/<id>/ptz/settings` | `{fov_h, fov_v, pan_range, tilt_range, speed}` calibration (persisted). |
+| `PATCH /api/cameras/<id>/ptz/settings` | `{fov_h, fov_v, pan_range, tilt_range, speed, zoom_max}` calibration (persisted). |
+| `GET /api/cameras/<id>/ptz/pose` | World anchoring: `active`, `pose {pan, tilt, zoom}`, effective `fov_h/fov_v`, `source` (`both`/`onvif`/`vision`/`none`), `vision`, `moving`, `drift_deg` (+ `drift_kind`), `onvif {supported, stale, aligned, position, inverted, scale_hint}`, `calibration`. Also embedded as `pose` in `GET .../ptz`. |
+| `POST /api/cameras/<id>/ptz/pose/reanchor` | Accept the current alignment (new keyframe, ONVIF offset re-aligned, drift cleared). |
+| `POST /api/cameras/<id>/ptz/pose/sync` | Snap the pose to the camera's reported position (`409` without one). |
+| `POST /api/cameras/<id>/ptz/pose/calibrate` | `{degrees}` (5-60, default 20): automatic FOV calibration with a relative move there and back. |
 
 ## ESP Features and Controls
 
@@ -573,7 +593,7 @@ New ESP setting keys: `alarms` (evaluate rules), `tripwires` (draw tripwires), `
 |---|---|---|
 | `GET` / `PATCH` | `/api/cameras/<id>/alerts` | Rules, tripwires (with live counters), channel status / set `abandoned_notify` |
 | `PUT` / `DELETE` | `/api/cameras/<id>/zones/<zone_id>/rule` | Create/update or remove a zone rule (`enabled`, `classes`, `min_dwell_s`, `schedule`, `notify`) |
-| `GET` / `POST` | `/api/cameras/<id>/tripwires` | List / create (`{"a": [x, y], "b": [x, y]}`, normalized) |
+| `GET` / `POST` | `/api/cameras/<id>/tripwires` | List / create (`{"a": [x, y], "b": [x, y]}`, normalized, in the current view). PTZ: responses give `a`/`b` in the current view plus `in_view`, `drawn_a`/`drawn_b`, `anchor` (pose it was drawn at) and `world` (azimuth/elevation of both ends) |
 | `PATCH` / `DELETE` | `/api/cameras/<id>/tripwires/<tid>` | Update (`label`, `trigger`, `alarm`, `classes`, `color`, `notify`, `flip`) / delete |
 | `POST` | `/api/cameras/<id>/tripwires/<tid>/reset` | Reset counters |
 | `GET` | `/api/events?camera=&since=&limit=` | Events (newest first) and currently active alarms |

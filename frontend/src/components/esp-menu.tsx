@@ -514,9 +514,9 @@ function ZoneRow({ zone, zones }: { zone: Zone; zones: ZoneActions }) {
           "min-w-7 rounded-full px-2 py-0.5 text-center text-xs tabular-nums transition-colors duration-300",
           zone.count > 0 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
         )}
-        title="Objects in this zone"
+        title={zone.in_view === false ? "Outside the current camera view" : "Objects in this zone"}
       >
-        {zone.count}
+        {zone.in_view === false ? "Off" : zone.count}
       </span>
       <button
         type="button"

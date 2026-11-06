@@ -10,6 +10,11 @@ Configuration (.env):
   degrees used for right-click centering (default 100 x 56).
 * ``SECURITYCAM_PTZ_PAN_RANGE`` / ``SECURITYCAM_PTZ_TILT_RANGE`` - mechanical
   range in degrees that ONVIF's generic -1..1 translation maps to (360 / 114).
+* ``SECURITYCAM_PTZ_ZOOM_MAX`` - optical zoom factor at ONVIF zoom 1.0 (default 1:
+  no optical zoom). Only used to read the absolute zoom position.
+
+World-anchored overlays (zones, tripwires, heatmap ... stay put in the room
+while the camera moves) use the pose estimate in ``pose.py``.
 
 The ONVIF login reuses the camera account of the RTSP stream. FOV and speed
 can be calibrated per camera in the UI; those values are persisted.
@@ -21,6 +26,7 @@ import threading
 from typing import Any
 
 from .. import config, persistence
+from . import pose
 from .controller import PtzBusy, PtzController, PtzNotReady, PtzUnsupportedOp  # noqa: F401
 from .onvif_backend import INSTALL_HINT, OnvifBackend, onvif_available
 
@@ -34,6 +40,7 @@ SETTING_LIMITS: dict[str, tuple[float, float]] = {
     "pan_range": (10.0, 720.0),
     "tilt_range": (5.0, 360.0),
     "speed": (0.05, 1.0),
+    "zoom_max": (1.0, 40.0),
 }
 DEFAULT_SETTINGS = {
     "fov_h": config._env_float("SECURITYCAM_PTZ_FOV_H", 100.0, *SETTING_LIMITS["fov_h"]),
@@ -41,6 +48,7 @@ DEFAULT_SETTINGS = {
     "pan_range": config._env_float("SECURITYCAM_PTZ_PAN_RANGE", 360.0, *SETTING_LIMITS["pan_range"]),
     "tilt_range": config._env_float("SECURITYCAM_PTZ_TILT_RANGE", 114.0, *SETTING_LIMITS["tilt_range"]),
     "speed": 0.5,
+    "zoom_max": config._env_float("SECURITYCAM_PTZ_ZOOM_MAX", 1.0, *SETTING_LIMITS["zoom_max"]),
 }
 
 
@@ -145,8 +153,35 @@ def get_controller(camera_id: str) -> PtzController | None:
         return ctl
     factory = backend_factory(camera) if backend_factory is not None else _default_factory(camera)
     ctl = PtzController(camera_id, factory, settings_for(camera_id), connect_guard=_rtsp_guard(camera_id))
+    pose.attach(ctl)
     with _lock:
         return _controllers.setdefault(camera_id, ctl)
+
+
+def peek_controller(camera_id: str) -> PtzController | None:
+    with _lock:
+        return _controllers.get(camera_id)
+
+
+def pose_status(camera_id: str) -> dict[str, Any]:
+    """World-anchoring state for the API (cheap, never logs in)."""
+    from .. import state as _state
+
+    cs = _state.get_camera_state(camera_id)
+    f = pose.peek(camera_id)
+    out: dict[str, Any] = {
+        "world_anchor": pose.anchor_enabled(cs) if cs is not None else True,
+        "active": bool(cs is not None and pose.active(cs)),
+    }
+    if f is None:
+        out.update({"ptz_known": False, "pose": {"pan": 0.0, "tilt": 0.0, "zoom": 1.0}, "source": "none",
+                    "vision": "off", "moving": False, "drift_deg": 0.0, "drift_kind": "estimated"})
+        return out
+    out.update(f.status())
+    ctl = peek_controller(camera_id)
+    if ctl is not None:
+        out["onvif"]["supported"] = ctl.position_supported
+    return out
 
 
 def configured(camera_id: str) -> bool:
@@ -169,6 +204,7 @@ def status(camera_id: str) -> dict[str, Any]:
         return base
     ctl = get_controller(camera_id)
     base.update(ctl.status() if ctl else {"state": "unavailable"})
+    base["pose"] = pose_status(camera_id)
     return base
 
 
@@ -179,12 +215,17 @@ def reset() -> None:
             ctl.close()
         _controllers.clear()
         _settings.clear()
+    pose.reset()
 
 
 # ---------------------------------------------------------------------------- persistence section
 def _dump() -> dict[str, Any]:
     with _lock:
-        return {"settings": {cam: dict(s) for cam, s in _settings.items() if s != DEFAULT_SETTINGS}}
+        out: dict[str, Any] = {"settings": {cam: dict(s) for cam, s in _settings.items() if s != DEFAULT_SETTINGS}}
+    poses = {cam: f.dump() for cam, f in list(pose._fusions.items()) if f.ptz_known}
+    if poses:
+        out["pose"] = poses
+    return out
 
 
 def _validate(raw: Any) -> tuple[dict[str, Any], list[str]]:
@@ -197,7 +238,11 @@ def _validate(raw: Any) -> tuple[dict[str, Any], list[str]]:
             out[str(cam)] = clean_settings(s)
         except ValueError:
             warnings.append(f"PTZ settings for '{cam}' dropped.")
-    return {"settings": out}, warnings
+    clean: dict[str, Any] = {"settings": out}
+    poses = pose.clean_dump(raw.get("pose"))
+    if poses:
+        clean["pose"] = poses
+    return clean, warnings
 
 
 def _load(clean: dict[str, Any]) -> None:
@@ -210,6 +255,8 @@ def _load(clean: dict[str, Any]) -> None:
                 _settings[cam] = merged
             else:
                 current.update(merged)   # controllers hold a reference to this dict
+    for cam, data in clean.get("pose", {}).items():
+        pose.get(cam).restore(data)
 
 
 def register() -> None:

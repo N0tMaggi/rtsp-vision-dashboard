@@ -10,6 +10,10 @@ hanging camera never blocks a request thread or the video render.
   sent a command) - never in the background - and failed attempts back off.
   Authentication failures back off much longer: Tapo (and others) lock the
   account for ONVIF *and* RTSP after a few failed logins.
+* The absolute position (``GetStatus``) is polled in the same worker thread
+  for the world-anchored overlays (``pose.py``): every ``POLL_FAST_S`` while
+  moving and shortly after a command, every ``POLL_SLOW_S`` otherwise. A
+  camera that never reports a position stops being polled.
 """
 from __future__ import annotations
 
@@ -26,6 +30,10 @@ CONNECT_BACKOFF_MAX_S = 120.0
 AUTH_BACKOFF_MIN_S = 60.0
 AUTH_BACKOFF_MAX_S = 1800.0
 MAX_JOBS = 16
+POLL_FAST_S = 0.3
+POLL_SLOW_S = 10.0
+POLL_FAST_WINDOW_S = 4.0      # fast polling continues this long after the last command
+POLL_MAX_FAILURES = 3
 
 
 def _clamp(v: Any, lo: float, hi: float) -> float:
@@ -69,6 +77,14 @@ class PtzController:
         self._last_move_at = 0.0
         self._thread: threading.Thread | None = None
         self._closed = False
+        # world-anchoring hooks (set by pose.attach); all called from the worker thread
+        self.position_listener: Callable[[dict | None], None] | None = None
+        self.command_listener: Callable[..., None] | None = None
+        self.fast_poll: Callable[[], bool] | None = None
+        self.position_supported: bool | None = None
+        self._poll_due = 0.0
+        self._poll_failures = 0
+        self._last_cmd_at = -1e9
 
     # ------------------------------------------------------------------ status
     def retry_in(self) -> float:
@@ -159,6 +175,18 @@ class PtzController:
         self._enqueue(("relative", x, y))
         return x, y
 
+    def relative_degrees(self, pan_deg: float, tilt_deg: float) -> tuple[float, float]:
+        """Relative move by an angle (converted with the calibrated pan / tilt range)."""
+        self._require_ready()
+        if not self.caps.get("relative"):
+            raise PtzUnsupportedOp("relative")
+        pan_range = _clamp(self.settings.get("pan_range", 360), 1, 720)
+        tilt_range = _clamp(self.settings.get("tilt_range", 114), 1, 360)
+        x = _clamp(float(pan_deg) / (pan_range / 2.0), -1, 1)
+        y = _clamp(float(tilt_deg) / (tilt_range / 2.0), -1, 1)
+        self._enqueue(("relative", x, y))
+        return x, y
+
     def goto_preset(self, token: str) -> None:
         self._require_ready()
         self._enqueue(("goto", str(token)))
@@ -203,13 +231,38 @@ class PtzController:
                     return self._jobs.popleft()
                 if self._moving and self.clock() - self._last_move_at > MOVE_WATCHDOG_S:
                     return ("watchdog",)
-                self._cond.wait(0.25 if self._moving else 1.0)
+                timeout = 0.25 if self._moving else 1.0
+                poll_in = self._poll_wait_locked()
+                if poll_in is not None:
+                    if poll_in <= 0:
+                        return ("poll",)
+                    timeout = min(timeout, poll_in)
+                self._cond.wait(timeout)
+
+    def _poll_interval(self) -> float:
+        fast = self._moving or self.clock() - self._last_cmd_at < POLL_FAST_WINDOW_S
+        if not fast and self.fast_poll is not None:
+            try:
+                fast = bool(self.fast_poll())
+            except Exception:
+                fast = False
+        return POLL_FAST_S if fast else POLL_SLOW_S
+
+    def _poll_wait_locked(self) -> float | None:
+        """Seconds until the next position poll is due, or None if not polling."""
+        if (self.position_listener is None or self.position_supported is False
+                or self.state != "ready" or self.backend is None):
+            return None
+        return self._poll_due - self.clock()
 
     def _run(self) -> None:
         while True:
             action = self._next_action()
             if action is None:
                 return
+            if action[0] == "poll":
+                self._execute(action)       # background read: not "busy" for the UI
+                continue
             self.busy_since = self.clock()
             try:
                 self._execute(action)
@@ -245,33 +298,92 @@ class PtzController:
         backend = self.backend
         if backend is None or self.state != "ready":
             return
+        if kind == "poll":
+            self._poll_position(backend)
+            return
         try:
             if kind == "motion":
                 _, x, y, z = action
                 if x or y or z:
                     backend.continuous_move(x, y, z)
                     self._moving = True
+                    self._notify("motion", (x, y, z))
                 else:
                     backend.stop()
                     self._moving = False
+                    self._notify("stop")
             elif kind == "watchdog":
                 self._moving = False
                 backend.stop()
+                self._notify("stop")
             elif kind == "relative":
                 backend.relative_move(action[1], action[2])
+                pan_range = _clamp(self.settings.get("pan_range", 360), 1, 720)
+                tilt_range = _clamp(self.settings.get("tilt_range", 114), 1, 360)
+                self._notify("relative", (action[1] * pan_range / 2.0, action[2] * tilt_range / 2.0))
             elif kind == "goto":
                 backend.goto_preset(action[1])
+                self._notify("goto", action[1])
             elif kind == "home":
                 backend.goto_home()
+                self._notify("home")
             elif kind == "set_preset":
                 backend.set_preset(action[1])
                 self.presets = backend.get_presets()
+                self._notify("preset_saved", action[1], [dict(p) for p in self.presets])
             elif kind == "remove_preset":
                 backend.remove_preset(action[1])
                 self.presets = backend.get_presets()
+                self._notify("preset_removed", action[1])
             self.error = ""
         except Exception as exc:
             self._command_failed(exc)
+
+    def _notify(self, kind: str, *args) -> None:
+        if kind not in ("preset_saved", "preset_removed"):
+            self._last_cmd_at = self.clock()
+            self._poll_due = min(self._poll_due, self.clock() + POLL_FAST_S)
+        if self.command_listener is not None:
+            try:
+                self.command_listener(kind, *args)
+            except Exception as exc:  # pragma: no cover - listener bugs must not break PTZ
+                print(f"[PTZ] {self.camera_id}: pose listener error {exc.__class__.__name__}: {exc}")
+
+    def _poll_position(self, backend) -> None:
+        self._poll_due = self.clock() + self._poll_interval()
+        fn = getattr(backend, "get_position", None)
+        if fn is None:
+            self.position_supported = False
+            return
+        try:
+            pos = fn()
+        except Exception as exc:
+            if is_auth_error(exc):
+                # Some firmwares answer "not authorized" for GetStatus although the session is
+                # fine (commands work). Never retry it - no extra failed calls on the account -
+                # and keep the session; a real credential problem shows up on the next command.
+                self.position_supported = False
+                print(f"[PTZ] {self.camera_id}: GetStatus refused ({type(exc).__name__}); "
+                      "anchoring uses the picture only.")
+                return
+            self._poll_failures += 1
+            if self._poll_failures >= POLL_MAX_FAILURES:
+                self.position_supported = False
+                print(f"[PTZ] {self.camera_id}: no absolute position from the camera "
+                      f"({type(exc).__name__}); anchoring uses the picture only.")
+            return
+        if pos is None:
+            self._poll_failures += 1
+            if self._poll_failures >= POLL_MAX_FAILURES * 2:
+                self.position_supported = False
+            return
+        self._poll_failures = 0
+        self.position_supported = True
+        if self.position_listener is not None:
+            try:
+                self.position_listener(pos)
+            except Exception as exc:  # pragma: no cover
+                print(f"[PTZ] {self.camera_id}: pose listener error {exc.__class__.__name__}: {exc}")
 
     def _do_connect(self) -> None:
         guard = self.connect_guard() if self.connect_guard else None
@@ -306,6 +418,14 @@ class PtzController:
             self.failures = 0
             self.auth_failures = 0
             self.retry_at = 0.0
+            self._poll_due = self.clock()
+            self._poll_failures = 0
+            self.position_supported = None
+        if self.command_listener is not None:
+            try:
+                self.command_listener("connected", dict(caps))
+            except Exception:
+                pass
         print(f"[PTZ] {self.camera_id}: connected ({', '.join(k for k, v in caps.items() if v) or 'no features'}).")
 
     def _connect_failed(self, exc: BaseException) -> None:

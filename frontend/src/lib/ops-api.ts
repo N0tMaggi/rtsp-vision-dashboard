@@ -79,6 +79,36 @@ export interface PtzSettings {
   pan_range: number
   tilt_range: number
   speed: number
+  /** Optical zoom factor at ONVIF zoom 1.0 (1 = no optical zoom). */
+  zoom_max?: number
+}
+
+/** World anchoring of overlays on a PTZ camera (backend: securitycam/ptz/pose.py). */
+export interface PoseStatus {
+  /** ESP setting "world_anchor". */
+  world_anchor: boolean
+  /** Overlays are anchored right now (PTZ known and setting on). */
+  active: boolean
+  ptz_known: boolean
+  pose: { pan: number; tilt: number; zoom: number }
+  fov_h?: number
+  fov_v?: number
+  source: "both" | "onvif" | "vision" | "none"
+  vision: "ok" | "lost" | "off" | "idle"
+  moving: boolean
+  speed?: number
+  drift_deg: number
+  drift_kind: "measured" | "estimated"
+  onvif?: {
+    supported: boolean | null
+    stale: boolean
+    aligned: boolean
+    position: { pan: number; tilt: number } | null
+    age_s: number | null
+    inverted: [boolean, boolean]
+    scale_hint: number | null
+  }
+  calibration?: { state: "idle" | "running" | "done" | "failed"; message?: string; fov_h?: number; fov_v?: number }
 }
 
 export interface PtzStatus {
@@ -96,6 +126,8 @@ export interface PtzStatus {
   presets: { token: string; name: string }[]
   busy: boolean
   moving: boolean
+  /** Newer backends: world-anchoring state. */
+  pose?: PoseStatus
 }
 
 const cam = (id: string) => `/api/cameras/${encodeURIComponent(id)}`
@@ -154,6 +186,10 @@ export const opsApi = {
     send<{ ok: boolean; ptz: PtzStatus }>(`${cam(id)}/ptz/presets/${encodeURIComponent(token)}`, undefined, "DELETE"),
   ptzSettings: (id: string, patch: Partial<PtzSettings>) =>
     send<{ ok: boolean; settings: PtzSettings }>(`${cam(id)}/ptz/settings`, patch, "PATCH"),
+  ptzPose: (id: string, signal?: AbortSignal) => fetch(`${cam(id)}/ptz/pose`, { signal }).then((r) => json<PoseStatus>(r)),
+  ptzReanchor: (id: string) => send<{ ok: boolean; pose: PoseStatus }>(`${cam(id)}/ptz/pose/reanchor`),
+  ptzSyncOnvif: (id: string) => send<{ ok: boolean; pose: PoseStatus }>(`${cam(id)}/ptz/pose/sync`),
+  ptzCalibrate: (id: string, degrees = 20) => send<{ ok: boolean; pose: PoseStatus }>(`${cam(id)}/ptz/pose/calibrate`, { degrees }),
 }
 
 export const TILE_WIDTHS = [320, 480, 640, 960, 1280] as const

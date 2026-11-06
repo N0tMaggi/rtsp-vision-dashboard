@@ -7,7 +7,7 @@ import time
 import cv2
 from flask import Blueprint, Response, abort, jsonify, request, send_file
 
-from .. import state
+from .. import anchor, geo, state
 from . import clips, conf, engine, notify
 from .events import events, save_snapshot
 from .store import AlertInputError, store
@@ -34,10 +34,24 @@ def _no_store(resp):
 
 
 # ----------------------------------------------------------------------------- config
+def _view(camera_id: str):
+    cs = state.get_camera_state(camera_id)
+    return anchor.view_for(cs) if cs is not None else anchor.INACTIVE
+
+
+def _wire_out(view, wire: dict) -> dict:
+    """Tripwire in the current view (``a``/``b`` projected; ``drawn_*``, ``anchor``, ``world``, ``in_view``)."""
+    out = dict(wire)
+    out.update(anchor.wire_api_fields(view, wire))
+    return out
+
+
 def _alerts_payload(camera_id: str) -> dict:
     cfg = store.payload(camera_id)
     eng = engine.peek(camera_id)
     counts = eng.counts() if eng else {}
+    view = _view(camera_id)
+    cfg["tripwires"] = [_wire_out(view, w) for w in cfg["tripwires"]]
     for w in cfg["tripwires"]:
         c = counts.get(w["id"], {"in": 0, "out": 0})
         w["count_in"], w["count_out"] = c["in"], c["out"]
@@ -93,26 +107,48 @@ def tripwires_get(camera_id: str):
     return _no_store(jsonify({"tripwires": _alerts_payload(camera_id)["tripwires"]}))
 
 
+def _with_anchor(camera_state, data, current: dict | None = None):
+    """Points from the client are in the current view: anchor them at the current pose.
+
+    A patch that moves only one endpoint first maps the other one into the current view.
+    """
+    if not isinstance(data, dict) or ("a" not in data and "b" not in data) or "anchor" in data:
+        return data
+    pose = anchor.pose_now(camera_state)
+    data = dict(data)
+    if current is not None and ("a" not in data or "b" not in data):
+        key = "b" if "a" in data else "a"
+        old = anchor.anchor_of(current)
+        if not old.close_to(pose, 1e-7):
+            uv, front = geo.transfer((current[key],), old, pose, anchor.lens_for(camera_state.camera_id))
+            if not front[0]:
+                raise AlertInputError("point_not_visible")
+            data[key] = [float(uv[0, 0]), float(uv[0, 1])]
+    data["anchor"] = pose.as_dict()
+    return data
+
+
 @blueprint.route("/api/cameras/<camera_id>/tripwires", methods=["POST"])
 def tripwire_create(camera_id: str):
-    _camera_or_404(camera_id)
+    camera_state = _camera_or_404(camera_id)
     try:
-        wire = store.add_tripwire(camera_id, request.get_json(silent=True))
+        wire = store.add_tripwire(camera_id, _with_anchor(camera_state, request.get_json(silent=True)))
     except AlertInputError as exc:
         return _bad(exc)
-    return jsonify({"ok": True, "tripwire": wire})
+    return jsonify({"ok": True, "tripwire": _wire_out(_view(camera_id), wire)})
 
 
 @blueprint.route("/api/cameras/<camera_id>/tripwires/<wire_id>", methods=["PATCH"])
 def tripwire_update(camera_id: str, wire_id: str):
-    _camera_or_404(camera_id)
+    camera_state = _camera_or_404(camera_id)
     try:
-        wire = store.update_tripwire(camera_id, wire_id, request.get_json(silent=True))
+        data = _with_anchor(camera_state, request.get_json(silent=True), store.get_tripwire(camera_id, wire_id))
+        wire = store.update_tripwire(camera_id, wire_id, data)
     except AlertInputError as exc:
         return _bad(exc)
     if wire is None:
         return jsonify({"ok": False, "error": "unknown_tripwire"}), 404
-    return jsonify({"ok": True, "tripwire": wire})
+    return jsonify({"ok": True, "tripwire": _wire_out(_view(camera_id), wire)})
 
 
 @blueprint.route("/api/cameras/<camera_id>/tripwires/<wire_id>", methods=["DELETE"])

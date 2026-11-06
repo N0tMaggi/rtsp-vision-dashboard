@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion, useSpring, useTransform, type MotionValue } from "motion/react"
-import type { NBox, Target } from "@/lib/types"
+import type { CameraPose, NBox, Target } from "@/lib/types"
 import { useVisualPrefs } from "@/lib/visual-prefs"
 import { cn } from "@/lib/utils"
 
@@ -22,6 +22,8 @@ interface Props {
   hoveredId: number | null
   /** Pan so that `box` is centered (keeping the zoom). */
   onFocus: (box: NBox) => void
+  /** PTZ camera pose while overlays are world-anchored: the radar shows world bearings. */
+  pose?: CameraPose
 }
 
 const spring = { type: "spring", stiffness: 420, damping: 32 } as const
@@ -43,7 +45,9 @@ export function StageVisuals(p: Props) {
           ))}
         </AnimatePresence>
       )}
-      {prefs.radar && <Radar targets={p.targets} lockedId={p.lockedId} hoveredId={p.hoveredId} compact={p.width < 520} />}
+      {prefs.radar && (
+        <Radar targets={p.targets} lockedId={p.lockedId} hoveredId={p.hoveredId} compact={p.width < 520} pose={p.pose} />
+      )}
     </div>
   )
 }
@@ -299,14 +303,37 @@ function Blip({ shape, r }: { shape: Shape; r: number }) {
   }
 }
 
-function Radar({ targets, lockedId, hoveredId, compact }: { targets: Target[]; lockedId: number | null; hoveredId: number | null; compact: boolean }) {
+/** Bearing of a normalized image column in degrees: pinhole model when the pose is known. */
+function bearing(u: number, pose?: CameraPose) {
+  if (!pose) return (u - 0.5) * FOV_DEG
+  const fx = 0.5 / Math.tan(((pose.fov_h / 2) * Math.PI) / 180)
+  return pose.pan + (Math.atan((u - 0.5) / fx) * 180) / Math.PI
+}
+
+function Radar({
+  targets,
+  lockedId,
+  hoveredId,
+  compact,
+  pose,
+}: {
+  targets: Target[]
+  lockedId: number | null
+  hoveredId: number | null
+  compact: boolean
+  pose?: CameraPose
+}) {
+  // Anchored PTZ: full circle in world bearings (0° = the camera's home direction, up),
+  // the view wedge turns with the camera. Otherwise a fan relative to the picture.
+  const world = Boolean(pose)
   const W = compact ? 132 : 176
   const R = W / 2 - 8
-  const H = R + 22
+  const H = world ? W + 12 : R + 22
   const cx = W / 2
-  const cy = R + 10
-  const half = FOV_DEG / 2
+  const cy = world ? W / 2 : R + 10
+  const half = (world ? pose!.fov_h : FOV_DEG) / 2
   const rad = (half * Math.PI) / 180
+  const heading = world ? pose!.pan : 0
 
   const withDist = targets.filter((t) => t.distance !== undefined)
   const maxD = withDist.reduce((m, t) => Math.max(m, t.distance ?? 0), 0)
@@ -314,7 +341,7 @@ function Radar({ targets, lockedId, hoveredId, compact }: { targets: Target[]; l
 
   const pos = (t: Target) => {
     const u = (t.box[0] + t.box[2]) / 2
-    const a = ((u - 0.5) * FOV_DEG * Math.PI) / 180
+    const a = (bearing(u, pose) * Math.PI) / 180
     // sqrt scale: spreads the near field, where most targets are
     const r = Math.sqrt(Math.min(1, (t.distance ?? range) / range)) * R
     return { x: cx + r * Math.sin(a), y: cy - r * Math.cos(a) }
@@ -340,16 +367,30 @@ function Radar({ targets, lockedId, hoveredId, compact }: { targets: Target[]; l
             <path d={fan} />
           </clipPath>
         </defs>
+        {world && (
+          <>
+            <circle cx={cx} cy={cy} r={R} fill="rgba(244,244,242,0.02)" stroke="rgba(244,244,242,0.14)" />
+            {[1 / 3, 2 / 3].map((f) => (
+              <circle key={f} cx={cx} cy={cy} r={R * f} fill="none" stroke="rgba(244,244,242,0.1)" strokeDasharray="2 3" />
+            ))}
+            <line x1={cx} y1={cy - R - 3} x2={cx} y2={cy - R + 4} stroke="rgba(244,244,242,0.5)" />
+            <text x={cx} y={cy - R - 5} textAnchor="middle" className="fill-muted-foreground" fontSize={8}>
+              0°
+            </text>
+          </>
+        )}
+        <g transform={`rotate(${heading} ${cx} ${cy})`} style={{ transition: "transform 120ms linear" }}>
         <path d={fan} fill="rgba(255,210,31,0.04)" stroke="rgba(244,244,242,0.18)" />
-        {[1 / 3, 2 / 3].map((f) => (
-          <path
-            key={f}
-            d={`M${cx - R * f * Math.sin(rad)} ${cy - R * f * Math.cos(rad)} A${R * f} ${R * f} 0 0 1 ${cx + R * f * Math.sin(rad)} ${cy - R * f * Math.cos(rad)}`}
-            fill="none"
-            stroke="rgba(244,244,242,0.12)"
-            strokeDasharray="2 3"
-          />
-        ))}
+        {!world &&
+          [1 / 3, 2 / 3].map((f) => (
+            <path
+              key={f}
+              d={`M${cx - R * f * Math.sin(rad)} ${cy - R * f * Math.cos(rad)} A${R * f} ${R * f} 0 0 1 ${cx + R * f * Math.sin(rad)} ${cy - R * f * Math.cos(rad)}`}
+              fill="none"
+              stroke="rgba(244,244,242,0.12)"
+              strokeDasharray="2 3"
+            />
+          ))}
         <line x1={cx} y1={cy} x2={cx} y2={cy - R} stroke="rgba(244,244,242,0.08)" />
         <g clipPath="url(#radar-fan)">
           <g>
@@ -366,6 +407,7 @@ function Radar({ targets, lockedId, hoveredId, compact }: { targets: Target[]; l
             <path d={`M${cx} ${cy} L${cx - R * 0.16} ${cy - R - 4} L${cx + 1} ${cy - R - 4} Z`} fill="url(#radar-sweep)" />
             <line x1={cx} y1={cy} x2={cx} y2={cy - R - 4} stroke="#ffd21f" strokeOpacity="0.55" strokeWidth={1} />
           </g>
+        </g>
         </g>
         <AnimatePresence>
           {withDist.map((t) => {
@@ -398,6 +440,7 @@ function Radar({ targets, lockedId, hoveredId, compact }: { targets: Target[]; l
         </AnimatePresence>
         <circle cx={cx} cy={cy} r={2.5} fill="#ffd21f" />
         <text x={cx + R} y={H - 2} textAnchor="end" className="fill-muted-foreground" fontSize={9}>
+          {world ? `${Math.round((((heading % 360) + 540) % 360) - 180)}° · ` : ""}
           {range} m
         </text>
         <text x={cx - R} y={H - 2} className="fill-muted-foreground" fontSize={9}>
