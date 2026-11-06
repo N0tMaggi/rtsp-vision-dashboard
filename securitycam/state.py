@@ -73,6 +73,12 @@ class CameraRuntime:
     stats: dict[str, Any] = field(default_factory=_default_stats)
     stream_error: str = ""
     worker_thread: threading.Thread | None = None
+    # Video sources (securitycam/sources.py): "rtsp" for configured cameras,
+    # "file" / "url" for virtual cameras opened from the video library.
+    source_kind: str = "rtsp"
+    source: Any = None              # sources.VideoSource for virtual cameras
+    source_epoch: int = 0           # bumped on loop/seek cuts (stale inference is dropped)
+    closed: bool = False            # virtual camera closed -> its YOLO worker exits
 
 
 def _runtime_from_camera(camera: config.CameraConfig) -> CameraRuntime:

@@ -1,0 +1,495 @@
+"""Tests for video analysis: library upload/list/rename/delete, file sources as
+virtual cameras, real-time pacing, playback control, track-state reset, YOLO
+worker and alarms on a video camera. Uses synthetic clips written with
+cv2.VideoWriter; no camera is ever contacted.
+
+Run:  python -m unittest discover -s tests
+Optional real-model test: set SECURITYCAM_TEST_MODELS_DIR to a folder with yolov8n.pt.
+"""
+from __future__ import annotations
+
+import io
+import json
+import os
+import shutil
+import sys
+import tempfile
+import threading
+import time
+import unittest
+from pathlib import Path
+from unittest import mock
+
+_TMP = tempfile.mkdtemp(prefix="securitycam-video-test-")
+os.environ.setdefault("SECURITYCAM_DATA_DIR", _TMP)
+os.environ.setdefault("SECURITYCAM_SAVE_DEBOUNCE", "0.05")
+os.environ.setdefault("SECURITYCAM_CAMERAS", "front|Front|192.0.2.10|user|pw|stream1;garage|Garage|192.0.2.11|user|pw|stream1")
+os.environ["SECURITYCAM_AUTO_INSTALL_DEPS"] = "false"
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import cv2  # noqa: E402
+import numpy as np  # noqa: E402
+
+from securitycam import persistence, presets, sources, state, streaming  # noqa: E402
+from securitycam.videos import api as videos_api  # noqa: E402
+from securitycam.videos import library  # noqa: E402
+from securitycam.webapp import app  # noqa: E402
+
+presets.SCHEDULER.stop()
+
+_MEDIA = Path(tempfile.mkdtemp(prefix="securitycam-media-"))
+
+
+def make_clip(path: Path, fps: float = 25.0, frames: int = 75, size=(320, 240), background=None) -> Path:
+    """Moving yellow rectangle on anthracite (or panning over ``background``)."""
+    w, h = size
+    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
+    assert writer.isOpened(), "cv2.VideoWriter could not open mp4v"
+    for i in range(frames):
+        if background is not None:
+            bh, bw = background.shape[:2]
+            x0 = int((bw - w) * (i / max(1, frames - 1)))
+            img = np.ascontiguousarray(background[(bh - h) // 2:(bh - h) // 2 + h, x0:x0 + w])
+        else:
+            img = np.full((h, w, 3), (39, 36, 34), np.uint8)
+            x = int((w - 60) * i / max(1, frames - 1))
+            cv2.rectangle(img, (x, 90), (x + 60, 150), (31, 210, 255), -1)
+        writer.write(img)
+    writer.release()
+    return path
+
+
+CLIP = make_clip(_MEDIA / "clip25.mp4")
+
+
+def upload(client, data: bytes, filename: str, **headers):
+    return client.post(
+        "/api/videos",
+        data={"file": (io.BytesIO(data), filename)},
+        content_type="multipart/form-data",
+        headers=headers,
+    )
+
+
+class LibraryCase(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(dir=_TMP))
+        self._orig = (library.LIBRARY.root, library.LIBRARY.incoming, library.LIBRARY.max_total)
+        library.LIBRARY.root = self.root
+        library.LIBRARY.incoming = self.root / ".incoming"
+        self.client = app.test_client()
+
+    def tearDown(self):
+        sources.close_all()
+        library.LIBRARY.root, library.LIBRARY.incoming, library.LIBRARY.max_total = self._orig
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def add_clip(self, name="clip.mp4", path: Path = CLIP) -> dict:
+        r = upload(self.client, path.read_bytes(), name)
+        self.assertEqual(r.status_code, 200, r.get_json())
+        return r.get_json()["video"]
+
+    def incoming_files(self):
+        inc = self.root / ".incoming"
+        return list(inc.glob("*")) if inc.is_dir() else []
+
+
+class UploadTests(LibraryCase):
+    def test_valid_upload_metadata_thumb_and_list(self):
+        v = self.add_clip("Parking lot.mp4")
+        self.assertEqual(v["name"], "Parking lot.mp4")
+        self.assertEqual((v["width"], v["height"]), (320, 240))
+        self.assertAlmostEqual(v["fps"], 25.0, delta=0.5)
+        self.assertAlmostEqual(v["duration"], 3.0, delta=0.2)
+        self.assertGreater(v["size"], 0)
+        self.assertTrue(v["thumb_url"])
+        thumb = self.client.get(v["thumb_url"])
+        self.assertEqual(thumb.status_code, 200)
+        self.assertEqual(thumb.mimetype, "image/jpeg")
+        thumb.close()
+        listed = self.client.get("/api/videos").get_json()
+        self.assertEqual([x["id"] for x in listed["videos"]], [v["id"]])
+        self.assertEqual(listed["total_bytes"], v["size"])
+        self.assertIn("mp4", listed["extensions"])
+        self.assertTrue((self.root / v["id"] / "meta.json").is_file())
+        self.assertEqual(self.incoming_files(), [])
+
+    def test_large_multichunk_upload(self):
+        rng = np.random.default_rng(1)
+        noise = rng.integers(0, 255, (720, 1280, 3), dtype=np.uint8)
+        clip = make_clip(_MEDIA / "noise.avi", fps=10, frames=20, size=(640, 480), background=noise)
+        self.assertGreater(clip.stat().st_size, 2 * 1024 * 1024)
+        v = self.add_clip("noise.avi", clip)
+        self.assertEqual(v["size"], clip.stat().st_size)
+        self.assertEqual(v["frames"], 20)
+
+    def test_too_big(self):
+        with mock.patch.object(videos_api, "MAX_UPLOAD_BYTES", 1000):
+            r = upload(self.client, CLIP.read_bytes(), "big.mp4")
+        self.assertEqual(r.status_code, 413)
+        self.assertEqual(r.get_json()["error"], "too_large")
+        self.assertEqual(self.incoming_files(), [])
+        self.assertEqual(self.client.get("/api/videos").get_json()["videos"], [])
+
+    def test_too_big_streamed_without_length_check(self):
+        # Content-Length passes the early check, the streaming sink still enforces the limit.
+        with mock.patch.object(videos_api, "MAX_UPLOAD_BYTES", 4000), mock.patch.object(videos_api, "_FORM_OVERHEAD", 10**9):
+            r = upload(self.client, CLIP.read_bytes(), "big.mp4")
+        self.assertEqual(r.status_code, 413)
+        self.assertEqual(self.incoming_files(), [])
+
+    def test_wrong_type(self):
+        r = upload(self.client, CLIP.read_bytes(), "clip.exe")
+        self.assertEqual(r.status_code, 415)
+        self.assertEqual(r.get_json()["error"], "unsupported_type")
+        r = upload(self.client, b"hello", "notes.txt")
+        self.assertEqual(r.status_code, 415)
+        self.assertEqual(self.incoming_files(), [])
+
+    def test_corrupt_file(self):
+        r = upload(self.client, b"\x00\x00\x00\x18ftypmp42" + os.urandom(4096), "broken.mp4")
+        self.assertEqual(r.status_code, 415)
+        self.assertEqual(r.get_json()["error"], "invalid_video")
+        r = upload(self.client, b"<?php echo 1; ?>", "script.mkv")
+        self.assertEqual(r.status_code, 415)
+        self.assertEqual(list(p for p in self.root.iterdir() if p.name != ".incoming"), [])
+        self.assertEqual(self.incoming_files(), [])
+
+    def test_traversal_names_and_ids(self):
+        v = self.add_clip("../../..\\evil/..\\pwn\x07.mp4")
+        self.assertEqual(v["name"], "pwn.mp4")
+        files = sorted(p.relative_to(self.root).as_posix() for p in self.root.rglob("*") if p.is_file())
+        self.assertEqual(files, [f"{v['id']}/meta.json", f"{v['id']}/thumb.jpg", f"{v['id']}/video.mp4"])
+        for bad in ("..", "..%2f..%2fetc", "ABCDEF123456", "abc", "../" + v["id"]):
+            r = self.client.get(f"/api/videos/{bad}")
+            self.assertIn(r.status_code, (404,), bad)
+            r = self.client.delete(f"/api/videos/{bad}")
+            self.assertIn(r.status_code, (404, 405), bad)
+        self.assertTrue((self.root / v["id"]).is_dir())
+        r = self.client.patch(f"/api/videos/{v['id']}", json={"name": "../../x/Gate cam"})
+        self.assertEqual(r.get_json()["video"]["name"], "Gate cam")
+
+    def test_requires_multipart_and_json(self):
+        r = self.client.post("/api/videos", data=CLIP.read_bytes(), content_type="application/octet-stream")
+        self.assertEqual(r.status_code, 415)
+        v = self.add_clip()
+        r = self.client.patch(f"/api/videos/{v['id']}", data="name=x", content_type="application/x-www-form-urlencoded")
+        self.assertEqual(r.status_code, 415)
+        r = self.client.post("/api/videos", data={"other": "x"}, content_type="multipart/form-data")
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.get_json()["error"], "missing_file")
+
+    def test_cross_site_upload_rejected(self):
+        r = upload(self.client, CLIP.read_bytes(), "clip.mp4", Origin="http://evil.example")
+        self.assertEqual(r.status_code, 403)
+        r = upload(self.client, CLIP.read_bytes(), "clip.mp4", **{"Sec-Fetch-Site": "cross-site"})
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(self.client.get("/api/videos").get_json()["videos"], [])
+
+    def test_rename_and_delete(self):
+        v = self.add_clip()
+        r = self.client.patch(f"/api/videos/{v['id']}", json={"name": "  Night  shift  "})
+        self.assertEqual(r.get_json()["video"]["name"], "Night shift")
+        self.assertEqual(self.client.patch(f"/api/videos/{v['id']}", json={"name": "   "}).status_code, 400)
+        self.assertEqual(self.client.patch(f"/api/videos/{v['id']}", json={"name": 5}).status_code, 400)
+        r = self.client.delete(f"/api/videos/{v['id']}")
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse((self.root / v["id"]).exists())
+        self.assertEqual(self.client.delete(f"/api/videos/{v['id']}").status_code, 404)
+
+    def test_retention_prunes_oldest(self):
+        a = self.add_clip("a.mp4")
+        b = self.add_clip("b.mp4")
+        library.LIBRARY.max_total = a["size"] * 2 + 10
+        c = self.add_clip("c.mp4")
+        ids = [x["id"] for x in self.client.get("/api/videos").get_json()["videos"]]
+        self.assertEqual(sorted(ids), sorted([b["id"], c["id"]]))
+        self.assertNotIn(a["id"], ids)
+        # an open video is never pruned; if nothing else can go the upload is refused
+        self.client.post(f"/api/videos/{b['id']}/open", json={})
+        self.client.post(f"/api/videos/{c['id']}/open", json={})
+        r = upload(self.client, CLIP.read_bytes(), "d.mp4")
+        self.assertEqual(r.status_code, 413)
+        self.assertEqual(r.get_json()["error"], "library_full")
+
+
+class SourceTests(LibraryCase):
+    def open_clip(self, **body):
+        v = self.add_clip()
+        r = self.client.post(f"/api/videos/{v['id']}/open", json=body)
+        self.assertEqual(r.status_code, 200, r.get_json())
+        cid = r.get_json()["camera_id"]
+        return v, cid, state.get_camera_state(cid)
+
+    def test_open_close_and_camera_lists(self):
+        v, cid, cs = self.open_clip()
+        self.assertEqual(cid, f"video-{v['id']}")
+        self.assertEqual(cs.source_kind, "file")
+        cams = {c["id"]: c for c in self.client.get("/api/cameras").get_json()["cameras"]}
+        self.assertEqual(cams[cid]["source_kind"], "file")
+        self.assertTrue(cams[cid]["has_stream"])
+        self.assertEqual(cams["front"]["source_kind"], "rtsp")
+        self.assertIn(cid, [c["id"] for c in self.client.get("/api/overview").get_json()["cameras"]])
+        self.assertEqual(self.client.get(f"/api/cameras/{cid}/status").status_code, 200)
+        # idempotent open
+        again = self.client.post(f"/api/videos/{v['id']}/open", json={}).get_json()
+        self.assertEqual(again["camera_id"], cid)
+        listed = self.client.get("/api/videos").get_json()["videos"][0]
+        self.assertEqual(listed["camera_id"], cid)
+        # never persisted
+        self.assertNotIn(cid, persistence.dump_cameras())
+        r = self.client.post(f"/api/sources/{cid}/close", json={})
+        self.assertEqual(r.status_code, 200)
+        self.assertIsNone(state.get_camera_state(cid))
+        self.assertNotIn(cid, [c["id"] for c in self.client.get("/api/cameras").get_json()["cameras"]])
+        self.assertEqual(self.client.post(f"/api/sources/{cid}/close", json={}).status_code, 404)
+        self.assertEqual(self.client.post("/api/sources/front/close", json={}).status_code, 404)
+
+    def test_copy_settings_from_current_camera(self):
+        front = state.get_camera_state("front")
+        front.esp_settings["thermal"] = True
+        try:
+            _, _, cs = self.open_clip(copy_settings_from="front")
+            self.assertTrue(cs.esp_settings["thermal"])
+            self.assertIsNot(cs.esp_settings, front.esp_settings)
+        finally:
+            front.esp_settings["thermal"] = False
+        _, _, fresh = self.open_clip()
+        self.assertFalse(fresh.esp_settings["thermal"])
+        self.assertTrue(fresh.yolo_enabled)          # AI on by default for video analysis
+
+    def test_delete_open_video_closes_it(self):
+        v, cid, cs = self.open_clip()
+        feed = streaming._acquire_feed(cs)
+        self.assertIsNotNone(feed)
+        r = self.client.delete(f"/api/videos/{v['id']}")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.get_json()["closed"], cid)
+        self.assertTrue(feed.stream.stopped)
+        self.assertFalse((self.root / v["id"]).exists())
+
+    def test_mjpeg_stream_from_video(self):
+        _, cid, cs = self.open_clip()
+        cs.yolo_enabled = False
+        gen = streaming.gen_frames(cid)
+        parts = [next(gen) for _ in range(5)]
+        gen.close()
+        self.assertTrue(all(p.startswith(b"--frame") for p in parts))
+        self.assertEqual(cs.stream_error, "")
+        self.assertEqual(cs.stats["resolution"], "320x240")
+
+    def _feed(self, cs):
+        feed = streaming._acquire_feed(cs)
+        self.assertIsNotNone(feed)
+        self.addCleanup(streaming._release_feed, cs, feed)
+        return feed
+
+    def test_realtime_pacing(self):
+        _, _, cs = self.open_clip()
+        cs.yolo_enabled = False
+        feed = self._feed(cs)
+        seq0, frame0 = feed.stream.seq, cs.source.playback.frame
+        time.sleep(2.0)
+        produced = feed.stream.seq - seq0
+        advanced = cs.source.playback.frame - frame0
+        # 25 fps clip -> ~50 new frames in 2 s (not hundreds)
+        self.assertGreaterEqual(produced, 40, produced)
+        self.assertLessEqual(produced, 60, produced)
+        self.assertAlmostEqual(advanced, 50, delta=10)
+
+    def test_pause_seek_speed_step(self):
+        _, cid, cs = self.open_clip()
+        cs.yolo_enabled = False
+        feed = self._feed(cs)
+        post = lambda body: self.client.post(f"/api/sources/{cid}/playback", json=body)  # noqa: E731
+        r = post({"action": "pause"})
+        self.assertFalse(r.get_json()["playback"]["playing"])
+        time.sleep(0.15)
+        f0, s0 = cs.source.playback.frame, feed.stream.seq
+        time.sleep(0.6)
+        self.assertEqual(cs.source.playback.frame, f0)          # position frozen
+        self.assertGreaterEqual(feed.stream.seq - s0, 3)        # still frame re-published for the ESP
+        # seek in seconds / fraction while paused
+        post({"action": "seek", "seconds": 2.0})
+        time.sleep(0.2)
+        self.assertEqual(cs.source.playback.frame, 50)
+        self.assertAlmostEqual(self.client.get(f"/api/sources/{cid}/playback").get_json()["position"], 2.0, delta=0.05)
+        post({"action": "seek", "fraction": 0.5})
+        time.sleep(0.2)
+        self.assertEqual(cs.source.playback.frame, 37)
+        post({"action": "seek", "delta": -1.0})
+        time.sleep(0.2)
+        self.assertEqual(cs.source.playback.frame, 12)
+        # frame step
+        post({"action": "step", "frames": 1})
+        time.sleep(0.2)
+        self.assertEqual(cs.source.playback.frame, 13)
+        post({"action": "step", "frames": -1})
+        time.sleep(0.2)
+        self.assertEqual(cs.source.playback.frame, 12)
+        # speed 2x: ~50 frames per second of wall time
+        post({"action": "seek", "seconds": 0})
+        r = post({"action": "play", "speed": 2.0})
+        self.assertEqual(r.get_json()["playback"]["speed"], 2.0)
+        time.sleep(0.2)
+        f1 = cs.source.playback.frame
+        time.sleep(1.0)
+        self.assertAlmostEqual(cs.source.playback.frame - f1, 50, delta=10)
+        # validation
+        self.assertEqual(post({"action": "seek", "seconds": -1}).status_code, 400)
+        self.assertEqual(post({"speed": 10}).status_code, 400)
+        self.assertEqual(post({"speed": True}).status_code, 400)
+        self.assertEqual(post({"action": "explode"}).status_code, 400)
+        self.assertEqual(post({"loop": "yes"}).status_code, 400)
+        self.assertEqual(self.client.get("/api/sources/front/playback").status_code, 404)
+
+    def test_loop_resets_track_state(self):
+        _, cid, cs = self.open_clip()
+        cs.yolo_enabled = False
+        self._feed(cs)
+        pb = cs.source.playback
+        cuts0, epoch0 = pb.cuts, cs.source_epoch
+        self.client.post(f"/api/sources/{cid}/playback", json={"action": "seek", "seconds": 2.6})
+        time.sleep(0.1)
+        cuts1 = pb.cuts
+        self.assertEqual(cuts1, cuts0 + 1)           # a 2.6 s jump is a cut
+        cs.track_history[7] = [(1, 1, 0.0), (2, 2, 0.1)]
+        cs.esp_motion = object()
+        cs.esp_locked = 7
+        with cs.frame_lock:
+            cs.latest_results = ["stale"]
+        time.sleep(1.0)                              # runs past the end and loops
+        self.assertEqual(pb.cuts, cuts1 + 1)
+        self.assertGreater(cs.source_epoch, epoch0)
+        self.assertLess(pb.frame, 40)
+        self.assertEqual(cs.track_history, {})
+        self.assertIsNone(cs.esp_motion)
+        self.assertIsNone(cs.esp_locked)
+        self.assertTrue(pb.playing)
+
+    def test_loop_off_ends_and_play_restarts(self):
+        _, cid, cs = self.open_clip(loop=False)
+        cs.yolo_enabled = False
+        self._feed(cs)
+        pb = cs.source.playback
+        self.assertFalse(pb.loop)
+        self.client.post(f"/api/sources/{cid}/playback", json={"action": "seek", "seconds": 2.7})
+        time.sleep(0.8)
+        p = self.client.get(f"/api/sources/{cid}/playback").get_json()
+        self.assertTrue(p["ended"])
+        self.assertFalse(p["playing"])
+        self.assertGreaterEqual(p["frame"], 70)
+        self.client.post(f"/api/sources/{cid}/playback", json={"action": "play"})
+        time.sleep(0.3)
+        self.assertTrue(pb.playing)
+        self.assertLess(pb.frame, 20)
+        self.client.post(f"/api/sources/{cid}/playback", json={"loop": True})
+        self.assertTrue(pb.loop)
+
+    def test_restart(self):
+        _, cid, cs = self.open_clip()
+        cs.yolo_enabled = False
+        self._feed(cs)
+        time.sleep(0.5)
+        self.client.post(f"/api/sources/{cid}/playback", json={"action": "restart"})
+        time.sleep(0.1)
+        self.assertLess(cs.source.playback.frame, 6)
+
+    def test_yolo_worker_on_video_source_with_mocked_model(self):
+        _, cid, cs = self.open_clip()
+        cs.esp_settings["tracking"] = False
+        calls = []
+
+        class FakeModel:
+            def __call__(self, frame, **kw):
+                calls.append(frame.shape)
+                return []
+
+        cs.yolo_model = FakeModel()
+        cs.yolo_enabled = True
+        with mock.patch.object(state, "YOLO_AVAILABLE", True):
+            self._feed(cs)
+            streaming.ensure_worker(cs)
+            time.sleep(1.0)
+            self.assertGreaterEqual(len(calls), 15)       # one inference per new frame (~25/s)
+            self.assertLessEqual(len(calls), 40)
+            self.assertEqual(calls[0], (240, 320, 3))
+            worker = cs.worker_thread
+            self.client.post(f"/api/sources/{cid}/close", json={})
+            worker.join(timeout=3.0)
+            self.assertFalse(worker.is_alive())           # closing stops the worker thread
+
+    def test_zones_and_alarm_rules_on_video_camera(self):
+        _, cid, cs = self.open_clip()
+        r = self.client.post(f"/api/cameras/{cid}/zones", json={"box": [0.1, 0.1, 0.9, 0.9], "label": "Lot"})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        zid = r.get_json()["zone"]["id"]
+        r = self.client.put(f"/api/cameras/{cid}/zones/{zid}/rule", json={"enabled": True, "classes": ["person"], "notify": False})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        r = self.client.post(f"/api/cameras/{cid}/tripwires", json={"a": [0.5, 0.0], "b": [0.5, 1.0]})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertEqual(len(self.client.get(f"/api/cameras/{cid}/alerts").get_json()["tripwires"]), 1)
+        self.assertEqual(self.client.get(f"/api/events?camera={cid}").status_code, 200)
+        self.assertEqual(self.client.get(f"/api/cameras/{cid}/targets").status_code, 200)
+        self.assertEqual(self.client.post(f"/api/cameras/{cid}/update_esp", json={"heatmap": True}).status_code, 200)
+
+    def test_url_source_validation(self):
+        for bad, code in (("file:///etc/passwd", "unsupported_scheme"), ("javascript:alert(1)", "unsupported_scheme"),
+                          ("ftp://x/y.mp4", "unsupported_scheme"), ("http://", "invalid_url"), (5, "invalid_url"),
+                          ("http://a b/x", "invalid_url")):
+            r = self.client.post("/api/sources/url", json={"url": bad})
+            self.assertEqual(r.status_code, 400, bad)
+            self.assertEqual(r.get_json()["error"], code, bad)
+        # an unreachable test-net address: the source opens (lazy), the stream reports an error
+        r = self.client.post("/api/sources/url", json={"url": "http://user:secret@192.0.2.1:9/cam.mjpg", "label": "Test"})
+        self.assertEqual(r.status_code, 200)
+        cid = r.get_json()["camera_id"]
+        listed = self.client.get("/api/sources").get_json()["sources"]
+        self.assertEqual(listed[0]["url"], "http://user:***@192.0.2.1:9/cam.mjpg")
+        self.assertNotIn("secret", json.dumps(self.client.get("/api/cameras").get_json()))
+        self.assertEqual(self.client.post(f"/api/sources/{cid}/playback", json={"action": "pause"}).status_code, 409)
+        self.assertFalse(self.client.get(f"/api/sources/{cid}/playback").get_json()["seekable"])
+
+
+@unittest.skipUnless(os.getenv("SECURITYCAM_TEST_MODELS_DIR"), "set SECURITYCAM_TEST_MODELS_DIR for the real-model test")
+class RealModelTests(LibraryCase):
+    def test_detects_and_tracks_people_in_a_clip(self):
+        from securitycam import config
+
+        if not state.YOLO_AVAILABLE:
+            self.skipTest("ultralytics not available")
+        import ultralytics
+
+        bus = cv2.imread(str(Path(ultralytics.__file__).parent / "assets" / "bus.jpg"))
+        clip = make_clip(_MEDIA / "bus.mp4", fps=25, frames=100, size=(640, 480), background=cv2.resize(bus, (960, 1280)[::-1]))
+        v = self.add_clip("bus.mp4", clip)
+        cid = self.client.post(f"/api/videos/{v['id']}/open", json={}).get_json()["camera_id"]
+        cs = state.get_camera_state(cid)
+        cs.esp_settings.update({"tracking": True, "tracers": True})
+        with mock.patch.object(config, "MODELS_DIR", Path(os.environ["SECURITYCAM_TEST_MODELS_DIR"])):
+            gen = streaming.gen_frames(cid)
+            stop = time.time() + 8.0
+            labels: set = set()
+            while time.time() < stop:
+                next(gen)
+                t = self.client.get(f"/api/cameras/{cid}/targets").get_json()
+                labels |= {x["label"] for x in t.get("targets", [])}
+                if "person" in labels and "bus" in labels and cs.track_history:
+                    break
+            self.assertIn("person", labels)
+            self.assertTrue(cs.track_history)
+            ids_before = set(cs.track_history)
+            # a cut (seek back) rebuilds the tracker; tracking resumes with fresh ids
+            self.client.post(f"/api/sources/{cid}/playback", json={"action": "seek", "seconds": 0.0})
+            stop = time.time() + 6.0
+            while time.time() < stop:
+                next(gen)
+                if cs.track_history and not (set(cs.track_history) & ids_before):
+                    break
+            gen.close()
+        self.assertTrue(cs.track_history)
+        self.assertFalse(set(cs.track_history) & ids_before)
+
+
+if __name__ == "__main__":
+    unittest.main()

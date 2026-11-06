@@ -358,7 +358,9 @@ def dump_cameras() -> dict[str, Any]:
     from .esp.pipeline import _esp_lock
 
     out: dict[str, Any] = dict(_orphan_cameras)
-    for cam_id, cs in _camera_states().items():
+    for cam_id, cs in list(_camera_states().items()):
+        if getattr(cs, "source_kind", "rtsp") != "rtsp":
+            continue   # ephemeral video-analysis cameras are not saved
         with _esp_lock(cs):
             zones = [
                 {k: (list(v) if k == "box" else copy.deepcopy(v)) for k, v in z.items() if k not in _EXTRA_ZONE_KEYS_BLOCKED}

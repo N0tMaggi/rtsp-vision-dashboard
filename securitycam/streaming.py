@@ -29,7 +29,7 @@ def yolo_worker(camera_state):
     print(f"[YOLO Worker] Started for {camera_state.camera_id}.")
     last_frame_ref = None
 
-    while True:
+    while not camera_state.closed:
         if not camera_state.yolo_enabled or not state.YOLO_AVAILABLE:
             time.sleep(0.5)
             with camera_state.frame_lock:
@@ -53,6 +53,7 @@ def yolo_worker(camera_state):
             continue
 
         do_track = camera_state.esp_settings["tracking"]
+        epoch = camera_state.source_epoch   # video loop/seek cut while inferring -> drop the result
 
         try:
             started_at = time.time()
@@ -64,6 +65,8 @@ def yolo_worker(camera_state):
             else:
                 results = model(current_frame_ref, verbose=False, device=state.DEVICE, conf=current_conf)
             last_frame_ref = current_frame_ref
+            if epoch != camera_state.source_epoch:
+                continue
             # recognition: stable re-entry ids + hand-off to the face/plate worker
             results = recognition.after_inference(camera_state, current_frame_ref, results, frame_ts)
 
@@ -324,9 +327,11 @@ def _acquire_feed(camera_state):
             feed.stream.release()
             _feeds.pop(camera_state.camera_id, None)
 
+        source = camera_state.source     # video file / URL source (securitycam/sources.py) or None
+        is_file = source is not None and camera_state.source_kind == "file"
         failures, retry_after = _connect_failures.get(camera_state.camera_id, (0, 0.0))
         wait = retry_after - time.monotonic()
-        if wait > 0:
+        if wait > 0 and not is_file:
             camera_state.stream_error = (
                 f"Camera refused the connection. Next attempt in {wait:.0f} s - "
                 "check user/password of the camera account in .env."
@@ -336,9 +341,11 @@ def _acquire_feed(camera_state):
         print(f"[Camera] Connecting to {camera_state.camera_id}: {_redact_url(camera_state.rtsp_url)}")
         with camera_state.frame_lock:
             camera_state.latest_frame = None
-        stream = VideoStream(camera_state.rtsp_url, camera_state)
+        stream = source.open_stream(camera_state) if source is not None else VideoStream(camera_state.rtsp_url, camera_state)
         if not stream.grabbed:
             stream.release()
+            if is_file:
+                return None
             failures += 1
             delay = min(_CONNECT_BACKOFF_MAX_S, _CONNECT_BACKOFF_MIN_S * 2 ** (failures - 1))
             _connect_failures[camera_state.camera_id] = (failures, time.monotonic() + delay)
