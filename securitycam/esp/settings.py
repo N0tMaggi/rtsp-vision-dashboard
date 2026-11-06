@@ -38,6 +38,14 @@ def _int(value: Any, default: int, lo: int, hi: int) -> int:
     return int(round(_float(value, default, lo, hi)))
 
 
+FACE_BLUR_MODES = ("blur", "pixelate", "blackbox")
+
+
+def _blur_mode(value: Any) -> str:
+    m = str(value or "blur").strip().lower()
+    return m if m in FACE_BLUR_MODES else "blur"
+
+
 def _odd_int(value: Any, default: int, lo: int, hi: int) -> int:
     k = _int(value, default, lo, hi)
     if k % 2 == 0:
@@ -84,6 +92,7 @@ class EspSettings:
     face_zoom: bool
     face_blur: bool
     face_blur_strength: int
+    face_blur_mode: str
     face_zoom_scale: float
     hand_skeleton: bool
     # motion / look / output
@@ -168,7 +177,8 @@ class EspSettings:
             face_boxes=b("face_boxes"),
             face_zoom=b("face_zoom"),
             face_blur=b("face_blur"),
-            face_blur_strength=_odd_int(d.get("face_blur_strength"), 15, 3, 35),
+            face_blur_strength=_int(d.get("face_blur_strength"), 70, 1, 100),
+            face_blur_mode=_blur_mode(d.get("face_blur_mode")),
             face_zoom_scale=_float(d.get("face_zoom_scale"), 2.0, 1.0, 4.0),
             hand_skeleton=b("hand_skeleton"),
             smoothing=_float(d.get("smoothing"), 0.6, 0.0, 1.0),

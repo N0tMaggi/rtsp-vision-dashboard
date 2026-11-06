@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import {
   BOX_STYLES,
   COLORS,
+  FACE_BLUR_MODES,
   FACE_TOGGLES,
   SLIDERS,
   STYLE_TOGGLES,
@@ -192,7 +193,13 @@ function CategoryBody({
     case "visual":
       return (
         <>
-          <BoxStylePicker value={String(settings.box_style ?? "corner")} onChange={(v) => onUpdate("box_style", v)} />
+          <SegmentPicker
+            label="Box-Stil"
+            id="box-style"
+            options={BOX_STYLES}
+            value={String(settings.box_style ?? "corner")}
+            onChange={(v) => onUpdate("box_style", v)}
+          />
           <ToggleList items={VISUAL_TOGGLES} settings={settings} onUpdate={onUpdate} />
           <SliderList items={sliders(["confidence_threshold", "line_thickness", "chams_opacity"])} settings={settings} onUpdate={onUpdate} />
         </>
@@ -201,7 +208,24 @@ function CategoryBody({
       return (
         <>
           <ToggleList items={FACE_TOGGLES} settings={settings} onUpdate={onUpdate} />
-          <SliderList items={sliders(["face_zoom_scale", "face_blur_strength"])} settings={settings} onUpdate={onUpdate} />
+          <div className="mt-4 border-t border-border pt-4">
+            <p className="mb-2 text-sm text-muted-foreground">Gesichter verbergen als</p>
+            <SegmentPicker
+              label="Art der Unkenntlichmachung"
+              id="face-blur-mode"
+              options={FACE_BLUR_MODES}
+              value={String(settings.face_blur_mode ?? "blur")}
+              onChange={(v) => {
+                onUpdate("face_blur_mode", v)
+                if (!settings.face_blur) onUpdate("face_blur", true)
+              }}
+            />
+          </div>
+          <SliderList
+            items={sliders(settings.face_blur_mode === "blackbox" ? ["face_zoom_scale"] : ["face_blur_strength", "face_zoom_scale"])}
+            settings={settings}
+            onUpdate={onUpdate}
+          />
         </>
       )
     case "track":
@@ -234,10 +258,22 @@ function CategoryBody({
   }
 }
 
-function BoxStylePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function SegmentPicker({
+  label,
+  id,
+  options,
+  value,
+  onChange,
+}: {
+  label: string
+  id: string
+  options: ReadonlyArray<{ value: string; label: string }>
+  value: string
+  onChange: (v: string) => void
+}) {
   return (
-    <div role="radiogroup" aria-label="Box-Stil" className="mb-3 grid grid-cols-3 gap-1 rounded-lg bg-background/60 p-1">
-      {BOX_STYLES.map((b) => {
+    <div role="radiogroup" aria-label={label} className="mb-3 grid grid-cols-3 gap-1 rounded-lg bg-background/60 p-1">
+      {options.map((b) => {
         const active = b.value === value
         return (
           <button
@@ -253,7 +289,7 @@ function BoxStylePicker({ value, onChange }: { value: string; onChange: (v: stri
           >
             {active && (
               <motion.span
-                layoutId="box-style-indicator"
+                layoutId={`${id}-indicator`}
                 className="absolute inset-0 rounded-md bg-primary"
                 transition={{ type: "spring", stiffness: 450, damping: 34 }}
               />

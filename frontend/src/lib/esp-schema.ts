@@ -32,7 +32,7 @@ export const VISUAL_TOGGLES: ToggleDef[] = [
 export const FACE_TOGGLES: ToggleDef[] = [
   { key: "face_boxes", label: "Face Boxes" },
   { key: "face_zoom", label: "Face Zoom" },
-  { key: "face_blur", label: "Face Blur" },
+  { key: "face_blur", label: "Gesichter verbergen" },
   { key: "hand_skeleton", label: "Hand Skeleton" },
 ]
 
@@ -56,7 +56,7 @@ export const SLIDERS: SliderDef[] = [
   { key: "line_thickness", label: "Line", min: 1, max: 6, step: 1, format: (v) => `${Math.round(v)}px` },
   { key: "chams_opacity", label: "Chams Opacity", min: 0, max: 1, step: 0.05, format: pct },
   { key: "face_zoom_scale", label: "Face Zoom", min: 1, max: 4, step: 0.25, format: (v) => `${v.toFixed(2)}x` },
-  { key: "face_blur_strength", label: "Face Blur", min: 3, max: 35, step: 2, format: (v) => `${Math.round(v)}` },
+  { key: "face_blur_strength", label: "Unkenntlichkeit", min: 1, max: 100, step: 1, format: (v) => `${Math.round(v)}%` },
   { key: "smoothing", label: "Glättung", min: 0, max: 1, step: 0.05, format: pct },
   { key: "jpeg_quality", label: "Bildqualität", min: 30, max: 95, step: 5, format: (v) => `${Math.round(v)}` },
 ]
@@ -75,6 +75,12 @@ export const COLORS: ToggleDef[] = [
   { key: "color_text", label: "Text" },
   { key: "chams_color", label: "Chams" },
 ]
+
+export const FACE_BLUR_MODES = [
+  { value: "blur", label: "Blur" },
+  { value: "pixelate", label: "Pixel" },
+  { value: "blackbox", label: "Black Box" },
+] as const
 
 export const BOX_STYLES = [
   { value: "full", label: "Full" },

@@ -30,6 +30,7 @@ COLOR_KEYS = frozenset(
 
 ENUM_KEYS: dict[str, frozenset[str]] = {
     "box_style": frozenset({"full", "corner", "3d"}),
+    "face_blur_mode": frozenset({"blur", "pixelate", "blackbox"}),
 }
 
 # key -> (min, max, kind); kind is "float", "int" or "odd_int".
@@ -37,7 +38,7 @@ NUMERIC_KEYS: dict[str, tuple[float, float, str]] = {
     "confidence_threshold": (0.05, 1.0, "float"),
     "line_thickness": (1, 6, "int"),
     "face_zoom_scale": (1.0, 4.0, "float"),
-    "face_blur_strength": (3, 35, "odd_int"),
+    "face_blur_strength": (1, 100, "int"),
     "chams_opacity": (0.0, 1.0, "float"),
     "smoothing": (0.0, 1.0, "float"),
     "jpeg_quality": (30, 95, "int"),

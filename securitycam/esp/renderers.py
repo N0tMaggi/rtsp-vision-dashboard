@@ -493,16 +493,73 @@ def draw_head(frame: np.ndarray, det: Detection, color: BGR, st: Style) -> None:
 
 
 # --------------------------------------------------------------------------- faces / hands
-def blur_faces(frame: np.ndarray, faces: Sequence[FaceBox], kernel: int) -> None:
-    k = max(3, int(kernel) | 1)  # GaussianBlur needs an odd kernel >= 3
+FACE_PAD = 0.25          # grow face boxes by 25% per side: Haar boxes are tight (no hair/chin)
+
+
+def anonymize_faces(frame: np.ndarray, faces: Sequence[FaceBox], mode: str, strength: int) -> None:
+    """
+    Hide faces in place.
+
+    mode: "blur" (heavy, size-relative blur), "pixelate" (coarse mosaic) or
+    "blackbox" (solid black). strength 1..100 scales blur/mosaic relative to the
+    face size, so it looks the same for near and far faces; blackbox ignores it.
+    """
+    p = min(1.0, max(0.0, (int(strength) - 1) / 99.0))
     h, w = frame.shape[:2]
     for (fx, fy, fw, fh) in faces:
-        rect = clip_rect(fx, fy, fw, fh, w, h)
+        pad_x, pad_y = int(fw * FACE_PAD), int(fh * FACE_PAD)
+        rect = clip_rect(fx - pad_x, fy - pad_y, fw + 2 * pad_x, fh + 2 * pad_y, w, h)
         if rect is None:
             continue
         x, y, rw, rh = rect
         roi = frame[y:y + rh, x:x + rw]
-        roi[:] = cv2.GaussianBlur(roi, (k, k), 0)
+        if mode == "blackbox":
+            roi[:] = 0
+            continue
+        if mode == "pixelate":
+            # 8 blocks across at 1%, 3 blocks across at 100%
+            blocks = max(2, round(8 - 5 * p))
+            sw = max(1, blocks)
+            sh = max(1, round(blocks * rh / max(1, rw)))
+            small = cv2.resize(roi, (sw, sh), interpolation=cv2.INTER_AREA)
+            roi[:] = cv2.resize(small, (rw, rh), interpolation=cv2.INTER_NEAREST)
+            continue
+        # blur: shrink hard, blur, scale back up -> strong, cheap, size-independent.
+        # 1% keeps ~1/18 of the resolution (features already gone), 100% ~1/80.
+        factor = 0.055 - (0.055 - 0.0125) * p
+        sw, sh = max(2, round(rw * factor)), max(2, round(rh * factor))
+        small = cv2.resize(roi, (sw, sh), interpolation=cv2.INTER_AREA)
+        small = cv2.GaussianBlur(small, (3, 3), 0)
+        blurred = cv2.resize(small, (rw, rh), interpolation=cv2.INTER_CUBIC)
+        # Soft elliptical edge so it reads as a face mask, not a square; core fully covered.
+        m_in, m_out = _face_masks(rw, rh)
+        roi[:] = cv2.blendLinear(blurred, roi, m_in, m_out)
+
+
+_mask_cache: dict = {}
+
+
+def _face_masks(rw: int, rh: int):
+    """Cached feathered ellipse weights (inside, outside) for a face ROI size."""
+    key = (rw // 4, rh // 4)          # 4px buckets keep the cache small while faces move
+    hit = _mask_cache.get(key)
+    if hit is not None and hit[0].shape == (rh, rw):
+        return hit
+    mask = np.zeros((rh, rw), np.float32)
+    cv2.ellipse(mask, (rw // 2, rh // 2), (max(1, rw // 2), max(1, rh // 2)), 0, 0, 360, 1.0, -1)
+    feather = max(3, (min(rw, rh) // 6) | 1)
+    mask = cv2.GaussianBlur(mask, (feather, feather), 0)
+    cv2.ellipse(mask, (rw // 2, rh // 2), (max(1, int(rw * 0.42)), max(1, int(rh * 0.42))), 0, 0, 360, 1.0, -1)
+    pair = (mask, 1.0 - mask)
+    if len(_mask_cache) > 64:
+        _mask_cache.clear()
+    _mask_cache[key] = pair
+    return pair
+
+
+def blur_faces(frame: np.ndarray, faces: Sequence[FaceBox], kernel: int) -> None:
+    """Backward-compatible wrapper (old odd-kernel API)."""
+    anonymize_faces(frame, faces, "blur", max(1, min(100, int(kernel) * 3)))
 
 
 def draw_face_boxes(frame: np.ndarray, faces: Sequence[FaceBox], color: BGR, text_color: BGR,
