@@ -139,7 +139,10 @@ export function useVideoAnalysis({ cameras, activeId, open, reloadCameras, right
   useEffect(() => {
     if (!isFile || !single || libraryOpen) return
     const onKey = (e: KeyboardEvent) => {
-      if (isTyping(e) || e.ctrlKey || e.metaKey || e.altKey) return
+      // AltGr (reported as Ctrl+Alt on Windows) is how [ and ] are typed on
+      // German and many other layouts, so it must not count as a modifier.
+      const altGr = e.getModifierState("AltGraph") || (e.ctrlKey && e.altKey)
+      if (isTyping(e) || e.metaKey || (!altGr && (e.ctrlKey || e.altKey))) return
       const k = e.key
       if (k === " " || k === "k" || k === "K") {
         e.preventDefault() // no page scroll, no click on a focused button
