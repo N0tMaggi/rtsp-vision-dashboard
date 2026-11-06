@@ -48,6 +48,16 @@ def _err(code: str, status: int = 400, **extra):
     return jsonify({"ok": False, "error": code, **extra}), status
 
 
+@blueprint.before_request
+def _require_json_body():
+    # A body on a mutating route must be JSON: browsers can send text/plain or
+    # form bodies cross-site without a CORS preflight, JSON they cannot.
+    if request.method in _MUTATING and not request.is_json:
+        if request.content_length or request.headers.get("Transfer-Encoding"):
+            return _err("unsupported_media_type", 415)
+    return None
+
+
 def _body():
     return request.get_json(silent=True)
 
@@ -172,14 +182,14 @@ def settings_export():
 
 @blueprint.route("/api/settings/import", methods=["POST"])
 def settings_import():
-    if (request.content_length or 0) > MAX_IMPORT_BYTES:
+    if not request.is_json:
+        return _err("unsupported_media_type", 415)
+    if request.content_length is None:
+        return _err("length_required", 411)
+    if request.content_length > MAX_IMPORT_BYTES:
         return _err("too_large", 413)
-    raw = request.get_data(cache=False, as_text=False)
-    if len(raw) > MAX_IMPORT_BYTES:
-        return _err("too_large", 413)
-    try:
-        doc = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError):
+    doc = request.get_json(silent=True)
+    if doc is None:
         return _err("invalid_json")
     dry_run = request.args.get("dry_run", "").lower() in {"1", "true", "yes"}
     try:

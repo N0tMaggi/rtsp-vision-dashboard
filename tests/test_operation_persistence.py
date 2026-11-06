@@ -327,6 +327,26 @@ class ImportExportTests(unittest.TestCase):
             r = self.client.post("/api/settings/import?dry_run=1", data=payload, content_type="application/json")
             self.assertEqual(r.status_code, 400, payload)
 
+    def test_non_json_bodies_are_rejected(self):
+        doc = self.client.get("/api/settings/export").get_data()
+        before = dict(state.camera_states["front"].esp_settings)
+        for ctype in ("text/plain", "application/x-www-form-urlencoded", "multipart/form-data; boundary=x"):
+            r = self.client.post("/api/settings/import", data=doc, content_type=ctype)
+            self.assertEqual(r.status_code, 415, ctype)
+            self.assertEqual(r.get_json()["error"], "unsupported_media_type")
+        self.assertEqual(self.client.post("/api/settings/import").status_code, 415)
+        self.assertEqual(state.camera_states["front"].esp_settings, before)
+        # every body-carrying route of the blueprint
+        for method, url in [
+            ("post", "/api/presets"), ("patch", "/api/presets/day"), ("post", "/api/presets/day/apply"),
+            ("post", "/api/schedules"), ("patch", "/api/schedules/s1"),
+            ("post", "/api/cameras/front/ptz/move"), ("post", "/api/cameras/front/ptz/center"),
+            ("post", "/api/cameras/front/ptz/presets"), ("patch", "/api/cameras/front/ptz/settings"),
+        ]:
+            r = getattr(self.client, method)(url, data='{"name": "x", "camera_id": "front"}', content_type="text/plain")
+            self.assertEqual(r.status_code, 415, url)
+        self.assertEqual(presets.STORE.get("day")["name"], "Day")
+
     def test_state_endpoint(self):
         data = self.client.get("/api/settings/state").get_json()
         self.assertIn("cameras", data["sections"])
