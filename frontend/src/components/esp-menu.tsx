@@ -1,7 +1,9 @@
 import { useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
-import { Box, Palette, Route, ScanFace, SquareDashed, Trash2, X } from "lucide-react"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Box, Fingerprint, Palette, Route, ScanFace, SquareDashed, Trash2, X } from "lucide-react"
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { RecognitionPanel } from "@/components/recognition-panel"
+import { groupModels } from "@/lib/recognition"
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -27,6 +29,7 @@ const CATEGORIES = [
   { id: "face", label: "Gesichter & Hände", icon: ScanFace },
   { id: "track", label: "Tracking", icon: Route },
   { id: "zones", label: "Zonen", icon: SquareDashed },
+  { id: "recognition", label: "Recognition", icon: Fingerprint },
   { id: "style", label: "Farben", icon: Palette },
 ] as const
 type CategoryId = (typeof CATEGORIES)[number]["id"]
@@ -99,10 +102,16 @@ export function EspMenu({ open, onClose, status, models, settings, onUpdate, onT
                 <SelectValue placeholder="Modell" />
               </SelectTrigger>
               <SelectContent>
-                {models.map((m) => (
-                  <SelectItem key={m} value={m} className="text-xs">
-                    {m.replace(/\.pt$/, "")}
-                  </SelectItem>
+                {groupModels(models).map((g) => (
+                  <SelectGroup key={g.family}>
+                    <SelectLabel className="text-[11px] text-primary/80">{g.family}</SelectLabel>
+                    {g.options.map((o) => (
+                      <SelectItem key={o.name} value={o.name} className="text-xs">
+                        {o.short}
+                        {o.pose && <span className="rounded bg-primary/15 px-1 text-[10px] text-primary">POSE</span>}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
                 ))}
               </SelectContent>
             </Select>
@@ -162,7 +171,7 @@ export function EspMenu({ open, onClose, status, models, settings, onUpdate, onT
                   className="p-4"
                 >
                   <h2 className="mb-3 text-base font-medium">{CATEGORIES.find((c) => c.id === category)?.label}</h2>
-                  <CategoryBody category={category} settings={settings} onUpdate={onUpdate} zones={zones} />
+                  <CategoryBody category={category} settings={settings} onUpdate={onUpdate} zones={zones} status={status} />
                 </motion.div>
               </AnimatePresence>
             </div>
@@ -182,11 +191,13 @@ function CategoryBody({
   settings,
   onUpdate,
   zones,
+  status,
 }: {
   category: CategoryId
   settings: EspSettings
   onUpdate: Update
   zones: ZoneActions
+  status: CameraStatus | null
 }) {
   const sliders = (keys: string[]) => SLIDERS.filter((s) => keys.includes(s.key))
   switch (category) {
@@ -243,6 +254,15 @@ function CategoryBody({
       )
     case "zones":
       return <ZonesPanel settings={settings} onUpdate={onUpdate} zones={zones} />
+    case "recognition":
+      return (
+        <RecognitionPanel
+          cameraId={status?.camera.id ?? null}
+          currentModel={status?.yolo_model ?? null}
+          settings={settings}
+          onUpdate={onUpdate}
+        />
+      )
     case "style":
       return (
         <>
