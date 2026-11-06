@@ -359,7 +359,12 @@ class PtzController:
             pos = fn()
         except Exception as exc:
             if is_auth_error(exc):
-                self._command_failed(exc)
+                # Some firmwares answer "not authorized" for GetStatus although the session is
+                # fine (commands work). Never retry it - no extra failed calls on the account -
+                # and keep the session; a real credential problem shows up on the next command.
+                self.position_supported = False
+                print(f"[PTZ] {self.camera_id}: GetStatus refused ({type(exc).__name__}); "
+                      "anchoring uses the picture only.")
                 return
             self._poll_failures += 1
             if self._poll_failures >= POLL_MAX_FAILURES:

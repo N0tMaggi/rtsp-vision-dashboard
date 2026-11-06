@@ -733,6 +733,18 @@ class ControllerPollingTests(unittest.TestCase):
         self.assertFalse(ctl2.position_supported)
         self.assertIsNone(ctl2._poll_wait_locked())
 
+        # "not authorized" for GetStatus only: stop polling, keep the PTZ session (no backoff)
+        def refuse():
+            raise RuntimeError("Sender not Authorized")
+        ctl3 = PtzController("front", lambda: types.SimpleNamespace(
+            connect=lambda: {"pan_tilt": True}, get_presets=lambda: [], get_position=refuse), {},
+            clock=lambda: clock[0])
+        ctl3.position_listener = got.append
+        ctl3._do_connect()
+        ctl3._execute(("poll",))
+        self.assertFalse(ctl3.position_supported)
+        self.assertEqual(ctl3.state, "ready")
+
 
 if __name__ == "__main__":
     unittest.main()
