@@ -58,6 +58,17 @@ export interface Target {
   label: string
   conf: number
   box: NBox
+  /** Estimated distance in meters (rough, from the box height). */
+  distance?: number
+  /** Per-track stats (newer backends): wall-clock seconds since epoch, seconds, normalized / meters. */
+  first_seen?: number
+  age?: number
+  dwell?: number
+  path?: number
+  path_m?: number
+  /** Current speed in m/s (and normalized frame units / s). */
+  speed?: number
+  speed_n?: number
 }
 
 export interface TargetsResponse {

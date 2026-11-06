@@ -5,6 +5,7 @@ import { api } from "@/lib/api"
 import type { Camera, NBox, Target, TargetsResponse } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { StageToolbar, type Tool } from "./stage-toolbar"
+import { StageVisuals } from "./stage-visuals"
 
 type Phase = "idle" | "connecting" | "live" | "error"
 
@@ -347,6 +348,20 @@ export function Stage(props: Props) {
           )}
         </svg>
       </motion.div>
+      {loaded && aiOn && (
+        <StageVisuals
+          view={view}
+          width={rect.width}
+          height={rect.height}
+          targets={list}
+          lockedId={lockedId}
+          hoveredId={hovered?.id ?? null}
+          onFocus={(b) => {
+            onFollowChange(false)
+            focus(b, 10, view.view.current.s)
+          }}
+        />
+      )}
       </motion.div>
 
       <Brackets phase={phase} rect={rect} area={{ w: box.w, h: box.h, right: rightInset }} />

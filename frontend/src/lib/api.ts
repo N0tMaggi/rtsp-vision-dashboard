@@ -33,6 +33,9 @@ export const api = {
     post<{ ok: boolean; zone: Zone }>(`${cam(id)}/zones`, { box, ...(label ? { label } : {}) }),
   updateZone: (id: string, zoneId: string, patch: Partial<Pick<Zone, "label" | "color" | "box">>) =>
     post<{ ok: boolean; zone: Zone }>(`${cam(id)}/zones/${encodeURIComponent(zoneId)}`, patch, "PATCH"),
+  heatmapUrl: (id: string, window: string, width = 480, nonce = 0) =>
+    `${cam(id)}/heatmap.png?window=${encodeURIComponent(window)}&w=${width}&v=${nonce}`,
+  resetHeatmap: (id: string) => post<{ ok: boolean }>(`${cam(id)}/heatmap/reset`),
   deleteZone: (id: string, zoneId: string) =>
     post<{ ok: boolean }>(`${cam(id)}/zones/${encodeURIComponent(zoneId)}`, undefined, "DELETE"),
 }
