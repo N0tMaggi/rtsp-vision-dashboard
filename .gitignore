@@ -11,6 +11,8 @@ Thumbs.db
 *.log
 *.tmp
 models/
+# local recognition data (face gallery etc.) never leaves the machine
+data/
 .env
 .env.*
 !.env.example

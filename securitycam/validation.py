@@ -33,6 +33,7 @@ ENUM_KEYS: dict[str, frozenset[str]] = {
     "face_blur_mode": frozenset({"blur", "pixelate", "blackbox"}),
     "heatmap_window": frozenset({"5m", "1h", "24h"}),
     "night_vision": frozenset({"off", "on", "auto"}),
+    "face_detector": frozenset({"yunet", "haar"}),
 }
 
 # key -> (min, max, kind); kind is "float", "int" or "odd_int".
@@ -47,6 +48,7 @@ NUMERIC_KEYS: dict[str, tuple[float, float, str]] = {
     "heatmap_opacity": (0.0, 1.0, "float"),
     "loiter_seconds": (5, 3600, "int"),
     "abandoned_seconds": (5, 600, "int"),
+    "face_match_threshold": (0.2, 0.8, "float"),
 }
 
 

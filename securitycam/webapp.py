@@ -3,9 +3,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from urllib.parse import urlsplit
+
 from flask import Flask, Response, abort, jsonify, request, send_from_directory
 
 from . import config, deps, state, targets
+from .recognition.api import blueprint as recognition_api
 from .streaming import gen_frames
 from .validation import ZoneError, parse_lock_id
 from .visuals_api import visuals_bp
@@ -61,9 +64,30 @@ def create_app() -> Flask:
     package_dir = Path(__file__).resolve().parent
     app = Flask(__name__, static_folder=str(package_dir / "static"))
 
+    @app.before_request
+    def _reject_cross_site_writes():
+        # CSRF guard for every mutating route: a page on another site must not be
+        # able to change settings, zones, presets, PTZ etc. through the user's
+        # browser. Browsers always send Origin on cross-site POST/PUT/PATCH/DELETE;
+        # non-browser clients (curl, scripts) send neither header and are allowed.
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return None
+        host = (request.host or "").lower()
+        origin = request.headers.get("Origin")
+        if origin is not None:
+            # "null" = sandboxed iframe / file:// page -> never trusted
+            if origin == "null" or urlsplit(origin).netloc.lower() != host:
+                return jsonify({"ok": False, "error": "cross_origin_request"}), 403
+            return None
+        referer = request.headers.get("Referer")
+        if referer and urlsplit(referer).netloc.lower() != host:
+            return jsonify({"ok": False, "error": "cross_origin_request"}), 403
+        return None
+
     frontend_dir = package_dir / "static" / "app"
     from .ops_api import blueprint as ops_blueprint  # persistence, presets, grid overview, PTZ
     app.register_blueprint(ops_blueprint)
+    app.register_blueprint(recognition_api)
 
     @app.route("/")
     def index():

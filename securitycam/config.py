@@ -107,6 +107,14 @@ AVAILABLE_MODELS = (
     "yolov8l-pose.pt",
     "yolov8x.pt",
     "yolov8x-pose.pt",
+    # --- recognition package: newer families (grouped in the UI by name prefix) ---
+    "yolo11n.pt",
+    "yolo11n-pose.pt",
+    "yolo11s.pt",
+    "yolo11s-pose.pt",
+    "yolo11m.pt",
+    "yolo11m-pose.pt",
+    "rtdetr-l.pt",
 )
 
 YOLO_MODEL_NAME = os.getenv("SECURITYCAM_YOLO_MODEL", "yolov8n.pt").strip() or "yolov8n.pt"
@@ -177,6 +185,17 @@ DEFAULT_ESP_SETTINGS = {
     "loiter_seconds": 120,
     "night_vision": "off",
     "night_vision_scanlines": False,
+    # --- recognition (securitycam/recognition) ---
+    "reid": True,                      # BoT-SORT ReID + re-entry id memory (needs tracking)
+    "known_faces": False,              # label faces from the local gallery (data/faces)
+    "face_match_threshold": 0.36,      # SFace cosine similarity needed for a name (OpenCV recommends 0.363)
+    "face_detector": "yunet",          # yunet (falls back to haar while missing) | haar
+    "plates": False,                   # read license plates on vehicles
+    "pets_show": True,
+    "pets_ignore_alarms": True,        # read by the alarm package via recognition.is_pet()
+    "color_pet": "#ff9f43",
+    "color_known": "#7ee0a1",
+    "color_unknown": "#ff5a5a",
 }
 
 

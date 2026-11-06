@@ -1,9 +1,11 @@
 import { useState, type ComponentType, type ReactNode } from "react"
 import { AnimatePresence, motion } from "motion/react"
-import { Box, Palette, Radar, Route, ScanFace, Siren, SquareDashed, Trash2, X } from "lucide-react"
+import { Box, Fingerprint, Palette, Radar, Route, ScanFace, Siren, SquareDashed, Trash2, X } from "lucide-react"
 import { AlertsPanel } from "@/components/alerts-panel"
 import { OverlaysPanel } from "@/components/overlays-panel"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { RecognitionPanel } from "@/components/recognition-panel"
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { groupModels } from "@/lib/recognition"
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -31,6 +33,7 @@ const CATEGORIES = [
   { id: "zones", label: "Zones", icon: SquareDashed },
   { id: "alarms", label: "Alarms", icon: Siren },
   { id: "overlays", label: "Overlays", icon: Radar },
+  { id: "recognition", label: "Recognition", icon: Fingerprint },
   { id: "style", label: "Colors", icon: Palette },
 ] as const
 type CategoryId = (typeof CATEGORIES)[number]["id"]
@@ -121,10 +124,16 @@ export function EspMenu({ open, onClose, status, models, settings, onUpdate, onT
                 <SelectValue placeholder="Model" />
               </SelectTrigger>
               <SelectContent>
-                {models.map((m) => (
-                  <SelectItem key={m} value={m} className="text-xs">
-                    {m.replace(/\.pt$/, "")}
-                  </SelectItem>
+                {groupModels(models).map((g) => (
+                  <SelectGroup key={g.family}>
+                    <SelectLabel className="text-[11px] text-primary/80">{g.family}</SelectLabel>
+                    {g.options.map((o) => (
+                      <SelectItem key={o.name} value={o.name} className="text-xs">
+                        {o.short}
+                        {o.pose && <span className="rounded bg-primary/15 px-1 text-[10px] text-primary">POSE</span>}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
                 ))}
               </SelectContent>
             </Select>
@@ -185,7 +194,7 @@ export function EspMenu({ open, onClose, status, models, settings, onUpdate, onT
                 >
                   <h2 className="mb-3 text-base font-medium">{allCategories.find((c) => c.id === category)?.label}</h2>
                   {extra ? extra.body : <CategoryBody category={category as CategoryId} settings={settings} onUpdate={onUpdate} zones={zones}
-                    cameraId={status?.camera.id ?? null} onDrawTripwire={onDrawTripwire} />}
+                    cameraId={status?.camera.id ?? null} onDrawTripwire={onDrawTripwire} status={status} />}
                 </motion.div>
               </AnimatePresence>
             </div>
@@ -207,6 +216,7 @@ function CategoryBody({
   zones,
   cameraId,
   onDrawTripwire,
+  status,
 }: {
   category: CategoryId
   settings: EspSettings
@@ -214,6 +224,7 @@ function CategoryBody({
   zones: ZoneActions
   cameraId: string | null
   onDrawTripwire?: () => void
+  status: CameraStatus | null
 }) {
   const sliders = (keys: string[]) => SLIDERS.filter((s) => keys.includes(s.key))
   switch (category) {
@@ -276,6 +287,15 @@ function CategoryBody({
       return (
         <AlertsPanel cameraId={cameraId} settings={settings} onUpdate={onUpdate} zones={zones.list}
           onDrawTripwire={onDrawTripwire ?? (() => {})} />
+      )
+    case "recognition":
+      return (
+        <RecognitionPanel
+          cameraId={status?.camera.id ?? null}
+          currentModel={status?.yolo_model ?? null}
+          settings={settings}
+          onUpdate={onUpdate}
+        />
       )
     case "style":
       return (
