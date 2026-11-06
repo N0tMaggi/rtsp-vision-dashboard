@@ -128,6 +128,30 @@ ASSETS = {
         "hand_landmarker.task",
         "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task",
     ),
+    # --- recognition package (securitycam/recognition) ---
+    # OpenCV Zoo: YuNet face detector (MIT) and SFace face recognizer (Apache-2.0)
+    "face_yunet": (
+        "face_detection_yunet_2023mar.onnx",
+        "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx",
+    ),
+    "face_sface": (
+        "face_recognition_sface_2021dec.onnx",
+        "https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx",
+    ),
+    # ankandrew/open-image-models (MIT): YOLOv9-t license plate detector, end-to-end NMS
+    "plate_detector": (
+        "yolo-v9-t-384-license-plates-end2end.onnx",
+        "https://github.com/ankandrew/open-image-models/releases/download/assets/yolo-v9-t-384-license-plates-end2end.onnx",
+    ),
+    # ankandrew/fast-plate-ocr (MIT): global plate OCR (65+ countries) + its preprocessing config
+    "plate_ocr": (
+        "global_mobile_vit_v2_ocr.onnx",
+        "https://github.com/ankandrew/cnn-ocr-lp/releases/download/arg-plates/global_mobile_vit_v2_ocr.onnx",
+    ),
+    "plate_ocr_config": (
+        "global_mobile_vit_v2_ocr_config.yaml",
+        "https://github.com/ankandrew/cnn-ocr-lp/releases/download/arg-plates/global_mobile_vit_v2_ocr_config.yaml",
+    ),
 }
 _ASSET_RETRY_S = 60.0
 _asset_lock = threading.Lock()
@@ -291,7 +315,9 @@ def get_yolo_model(camera_state):
                 print(f"[YOLO] Download of {name} into models/ failed: {exc}")
         model_source = str(source_path) if source_path.exists() else name
         print(f"[YOLO] Loading model {model_source} (DEVICE={state.DEVICE})...")
-        camera_state.yolo_model = state.YOLO(model_source)
+        # recognition package: prefers a TensorRT .engine for this model when one was built
+        from .recognition.engines import load_model as _load_model_or_engine
+        camera_state.yolo_model = _load_model_or_engine(name, model_source)
         _adopt_stray_weights(name)
         print("[YOLO] Model ready:", name)
     return camera_state.yolo_model

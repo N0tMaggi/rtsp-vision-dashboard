@@ -14,7 +14,7 @@ import time
 
 import cv2
 
-from . import config, deps, state
+from . import config, deps, recognition, state
 from .esp import draw_custom_esp
 
 FRAME_WAIT_S = 2.0          # how long a client waits for a new frame before flagging the stream
@@ -58,10 +58,13 @@ def yolo_worker(camera_state):
             current_conf = camera_state.esp_settings.get("confidence_threshold", 0.35)
 
             if do_track:
-                results = model.track(current_frame_ref, persist=True, verbose=False, device=state.DEVICE, conf=current_conf)
+                results = model.track(current_frame_ref, persist=True, verbose=False, device=state.DEVICE, conf=current_conf,
+                                      **recognition.track_kwargs(camera_state, model))
             else:
                 results = model(current_frame_ref, verbose=False, device=state.DEVICE, conf=current_conf)
             last_frame_ref = current_frame_ref
+            # recognition: stable re-entry ids + hand-off to the face/plate worker
+            results = recognition.after_inference(camera_state, current_frame_ref, results, frame_ts)
 
             infer_dt = time.time() - started_at
             camera_state.stats["last_infer_ms"] = infer_dt * 1000.0

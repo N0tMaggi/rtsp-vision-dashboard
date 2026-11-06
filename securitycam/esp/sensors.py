@@ -10,7 +10,7 @@ from typing import List, Optional, Tuple
 import cv2
 import numpy as np
 
-from .. import config, deps
+from .. import config, deps, recognition
 
 FaceBox = Tuple[int, int, int, int]
 HandPoints = List[Tuple[int, int]]
@@ -38,8 +38,12 @@ def update_faces(camera_state, frame: np.ndarray, settings, frame_idx: int,
         return []
 
     if _due(getattr(camera_state, "last_face_frame", -999), frame_idx, config.FACE_DETECT_EVERY):
-        cascade = deps.ensure_face_cascade()
-        if cascade is not None:
+        # recognition: YuNet (better recall, side faces) when available, Haar otherwise
+        yunet = recognition.detect_face_rects(camera_state, frame, config.FACE_DETECT_SCALE)
+        cascade = deps.ensure_face_cascade() if yunet is None else None
+        if yunet is not None:
+            camera_state.last_faces[:] = yunet
+        elif cascade is not None:
             h, w = frame.shape[:2]
             scale = config.FACE_DETECT_SCALE
             try:

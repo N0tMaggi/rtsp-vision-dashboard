@@ -1,0 +1,20 @@
+# BoT-SORT with ReID for SecurityCam (recognition package).
+# Same as Ultralytics' botsort.yaml, with ReID on and a longer lost-track buffer
+# so people keep their id through short occlusions.
+
+tracker_type: botsort
+track_high_thresh: 0.25
+track_low_thresh: 0.1
+new_track_thresh: 0.3
+track_buffer: 90          # frames a lost track is kept (about 4-6 s at typical inference rates)
+match_thresh: 0.8
+fuse_score: True
+
+# static camera: no global motion compensation needed (and it costs CPU)
+gmc_method: none
+
+# ReID
+proximity_thresh: 0.5
+appearance_thresh: 0.75
+with_reid: True
+model: auto               # detector features for YOLO .pt models; Ultralytics picks a small classifier otherwise

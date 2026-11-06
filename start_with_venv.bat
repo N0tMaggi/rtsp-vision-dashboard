@@ -42,6 +42,14 @@ python -m pip install --force-reinstall --no-deps torch torchvision --index-url 
 if errorlevel 1 echo [WARN] CUDA torch install failed - continuing on CPU.
 :skip_cuda
 
+rem --- optional: TensorRT for "Optimize for GPU" (large download, NVIDIA only) ---
+rem Enable with:  set SECURITYCAM_INSTALL_TENSORRT=1
+if "%SECURITYCAM_INSTALL_TENSORRT%"=="1" (
+  echo [SETUP] Installing optional TensorRT export dependencies...
+  python -m pip install tensorrt onnx onnxslim
+  if errorlevel 1 echo [WARN] TensorRT install failed - GPU optimization stays unavailable.
+)
+
 echo [RUN] Starting SecurityCam...
 python main.py
 

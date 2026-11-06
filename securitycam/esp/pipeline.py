@@ -16,6 +16,7 @@ from .detections import Detection, extract_detections
 from .sensors import update_faces, update_hands
 from .colors import parse_hex
 from .settings import EspSettings
+from ..recognition import overlay as recog
 
 _LOCK_INIT_GUARD = threading.Lock()
 _FADE_OPAQUE = 0.985
@@ -124,6 +125,10 @@ def draw_custom_esp(camera_state, frame, results, frame_ts: Optional[float] = No
             camera_state.esp_locked = locked = None   # locked track was pruned
         zones = list(getattr(camera_state, "esp_zones", None) or ()) if s.zones else []
 
+    # recognition (names, plates, pets): per-frame context, lookups only
+    rc = recog.prepare(camera_state, coord_scale, t_frame)
+    detections = recog.filter_detections(rc, detections)
+
     # ---- frame-level effects (on the raw image, before any overlay) -----------------
     if s.face_blur and faces:
         R.anonymize_faces(frame, faces, s.face_blur_mode, s.face_blur_strength)
@@ -158,6 +163,7 @@ def draw_custom_esp(camera_state, frame, results, frame_ts: Optional[float] = No
             resolve_detection_colors(s, i, d.obj_id, d.cls_id, i == closest, now)
             for i, d in enumerate(detections)
         ]
+        palettes = recog.adjust_palettes(rc, detections, palettes, s.rgb_mode)
         lock_idx = None
         if locked is not None:
             lock_idx = next((i for i, d in enumerate(detections) if d.track_key == locked), None)
@@ -214,7 +220,7 @@ def draw_custom_esp(camera_state, frame, results, frame_ts: Optional[float] = No
                 # rgb mode cycles colors every frame: keep the label accent constant so the
                 # cached label image is reused
                 accent = pal.text if s.rgb_mode else pal.box
-                runs = R.build_label(det, s, pal.text)
+                runs = recog.decorate_label(rc, det, R.build_label(det, s, pal.text), pal.text)
                 if i == lock_idx:
                     runs = [("LOCK", True, s.color_primary)] + ([("  ", False, pal.text)] if runs else []) + runs
                     accent = s.color_primary
@@ -237,7 +243,9 @@ def draw_custom_esp(camera_state, frame, results, frame_ts: Optional[float] = No
             R.draw_tag(frame, tag)
 
     # ---- faces / hands / inset -----------------------------------------------------
-    if s.face_boxes and faces:
+    if recog.draw_faces(rc, frame, faces, s, st, placed):
+        pass  # known faces: names / UNKNOWN drawn by the recognition overlay
+    elif s.face_boxes and faces:
         R.draw_face_boxes(frame, faces, s.color_face, s.color_text, st, s.label_background, placed)
     if s.hand_skeleton and hands:
         R.draw_hands(frame, hands, s.color_hand, st)

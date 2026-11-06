@@ -6,6 +6,7 @@ from pathlib import Path
 from flask import Flask, Response, abort, jsonify, request, send_from_directory
 
 from . import config, deps, state, targets
+from .recognition.api import blueprint as recognition_api
 from .streaming import gen_frames
 from .validation import ZoneError, parse_lock_id
 
@@ -61,6 +62,7 @@ def create_app() -> Flask:
     app = Flask(__name__, static_folder=str(package_dir / "static"))
 
     frontend_dir = package_dir / "static" / "app"
+    app.register_blueprint(recognition_api)
 
     @app.route("/")
     def index():

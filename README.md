@@ -567,6 +567,22 @@ Recommended deployment hardening:
 - restrict network access to trusted clients
 - avoid exposing dashboard publicly without authentication at network edge
 
+## Recognition
+
+Package `securitycam/recognition/`, UI category **Recognition** in the ESP menu. Everything runs locally; no image or embedding leaves the machine.
+
+| Feature | How | Extra install |
+|---|---|---|
+| Re-identification (`reid`) | Ultralytics BoT-SORT with ReID (`with_reid: True`, detector features for YOLO `.pt` models, a small classifier in `models/` for RT-DETR / engines) plus a re-entry memory that gives a returning person their old id (colour descriptor, 2 min) | none |
+| Known faces (`known_faces`, `face_match_threshold`) | OpenCV YuNet + SFace (opencv_zoo, downloaded into `models/`), gallery in `data/faces/<id>/` | none (OpenCV >= 4.8) |
+| Face detector (`face_detector`) | YuNet by default for face boxes / blur / zoom, Haar as fallback | none |
+| License plates (`plates`) | YOLOv9-t plate detector (open-image-models, MIT) + fast-plate-ocr global model (MIT), both run in OpenCV DNN; per-track majority vote | none (`onnxruntime` is used as fallback if installed) |
+| Pets (`pets_show`, `pets_ignore_alarms`) | cats / dogs get their own colour and a `PET` tag; `recognition.is_pet(label)` for the alarm code | none |
+| Models | YOLOv8, YOLO11 (n/s/m, detect + pose), RT-DETR-L | none |
+| Optimize for GPU | Ultralytics TensorRT export (FP16) into `models/<model>.engine`, used automatically afterwards | `python -m pip install tensorrt onnx onnxslim` (or `SECURITYCAM_INSTALL_TENSORRT=1` with the start scripts) |
+
+API (prefix `/api/recognition`): `GET /status`, `GET|POST /people` (multipart `name` + `photo`, or JSON `{name, candidate_id}`), `PATCH|DELETE /people/<id>`, `GET /people/<id>/thumb`, `GET /cameras/<id>/face_candidates`, `GET|DELETE /cameras/<id>/plates`, `GET /models`, `POST|DELETE /models/<model>/engine`.
+
 ## Roadmap
 
 - optional dashboard authentication
