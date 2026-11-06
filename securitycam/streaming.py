@@ -17,6 +17,7 @@ import cv2
 from . import config, deps, recognition, state
 from .alerts.clips import record_frame
 from .esp import draw_custom_esp
+from .ptz import pose as ptz_pose
 
 FRAME_WAIT_S = 2.0          # how long a client waits for a new frame before flagging the stream
 
@@ -221,6 +222,9 @@ class VideoStream:
         while not self.stopped:
             grabbed, frame = self.stream.read()
             ts = time.perf_counter()
+            if grabbed:
+                # PTZ pose (vision ego-motion) for this frame, before anyone renders it
+                ptz_pose.on_frame(self.camera_state, frame, ts)
             with self.cond:
                 self.grabbed = grabbed
                 if grabbed:

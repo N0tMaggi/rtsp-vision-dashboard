@@ -3,12 +3,18 @@
 Everything reads/writes per-camera state under the camera's ESP lock, the
 same lock the overlay renderer uses. Coordinates in the API are normalized
 0..1 ([x1, y1, x2, y2]) relative to the frame.
+
+Zones on PTZ cameras are world-anchored (``anchor.py``): a new / moved zone
+stores the camera pose it was drawn at; responses describe it in the
+*current* view (``box`` = projected bounding box, ``polygon``, ``in_view``)
+plus ``drawn_box``, ``anchor`` and ``world`` (corner azimuth / elevation).
 """
 from __future__ import annotations
 
 import time
 from typing import Any, Optional
 
+from . import anchor
 from .esp import motion, trackstats
 from .esp.pipeline import _esp_lock
 from .validation import ZONE_DEFAULT_COLOR, ZoneError, parse_zone_patch
@@ -88,7 +94,13 @@ def targets_payload(camera_state) -> dict[str, Any]:
         targets = _visible_targets_locked(camera_state, t)
         running = camera_state.yolo_enabled and camera_state.latest_results is not None
         locked = _validate_lock_locked(camera_state, targets if running else None)
-    return {"ts": time.time(), "frame": {"w": w, "h": h}, "locked": locked, "targets": targets}
+    out = {"ts": time.time(), "frame": {"w": w, "h": h}, "locked": locked, "targets": targets}
+    view = anchor.view_for(camera_state)
+    if view.active:
+        fov_h, fov_v = view.lens.effective_fov(view.pose.zoom)
+        out["pose"] = {**view.pose.as_dict(), "fov_h": round(fov_h, 3), "fov_v": round(fov_v, 3),
+                       "moving": view.speed > 0.35}
+    return out
 
 
 def set_lock(camera_state, target_id: Optional[int]) -> bool:
@@ -120,22 +132,35 @@ def _count_inside(box, targets) -> int:
     return n
 
 
+def _zone_view_out(view, zone, targets) -> dict[str, Any]:
+    out = dict(zone)
+    out.update(anchor.zone_api_fields(view, zone))
+    if not out["in_view"]:
+        out["count"] = 0
+    else:
+        centers = [((tg["box"][0] + tg["box"][2]) * 0.5, (tg["box"][1] + tg["box"][3]) * 0.5) for tg in targets]
+        poly = [tuple(p) for p in out["polygon"]]
+        out["count"] = anchor.count_inside(poly, centers) if view.active and not zone_is_box(view, zone) \
+            else _count_inside(out["box"], targets)
+    return out
+
+
+def zone_is_box(view, zone) -> bool:
+    return view.identical(anchor.anchor_of(zone))
+
+
 def zones_payload(camera_state) -> list[dict[str, Any]]:
+    view = anchor.view_for(camera_state)
     with _esp_lock(camera_state):
+        anchor.ensure_zone_anchors(camera_state)
         targets = _visible_targets_locked(camera_state, time.perf_counter())
         zones = [dict(z) for z in camera_state.esp_zones]
-    for z in zones:
-        z["box"] = list(z["box"])
-        z["count"] = _count_inside(z["box"], targets)
-    return zones
+    return [_zone_view_out(view, z, targets) for z in zones]
 
 
 def _zone_out(camera_state, zone) -> dict[str, Any]:
-    out = dict(zone)
-    out["box"] = list(zone["box"])
     targets = _visible_targets_locked(camera_state, time.perf_counter())
-    out["count"] = _count_inside(zone["box"], targets)
-    return out
+    return _zone_view_out(anchor.view_for(camera_state), zone, targets)
 
 
 def create_zone(camera_state, data: Any) -> dict[str, Any]:
@@ -150,6 +175,7 @@ def create_zone(camera_state, data: Any) -> dict[str, Any]:
             "label": fields.get("label") or f"Zone {n}",
             "box": fields["box"],
             "color": fields.get("color") or ZONE_DEFAULT_COLOR,
+            "anchor": anchor.current_anchor(camera_state),   # drawn in the current view
         }
         camera_state.esp_zones.append(zone)
         return _zone_out(camera_state, zone)
@@ -165,6 +191,7 @@ def update_zone(camera_state, zone_id: str, data: Any) -> Optional[dict[str, Any
         new = dict(zone)
         if "box" in fields:
             new["box"] = fields["box"]
+            new["anchor"] = anchor.current_anchor(camera_state)
         if "label" in fields:
             new["label"] = fields["label"] or f"Zone {zone_id.lstrip('z')}"
         if "color" in fields:

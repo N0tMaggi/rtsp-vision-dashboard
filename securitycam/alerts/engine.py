@@ -8,6 +8,14 @@ notifications) is handed to ``events.trigger`` which just enqueues.
 Coordinates: detections and the motion model's ``track_history`` are in pixels
 of the rendered frame (``w`` x ``h``); zones, tripwires and abandoned boxes are
 normalized 0..1.
+
+PTZ cameras (``anchor.View.active``): zones arrive already projected into the
+current view (``_poly_px`` / ``_hidden``, see ``anchor.project_zones``);
+tripwire crossings are evaluated in the view the wire was drawn in (each
+track point is mapped there with the pose of the frame it was observed in),
+and abandoned-object candidates remember the pose they were first seen at.
+While the camera turns faster than ``ptz.pose.FAST_DEG_S`` zone dwell and
+abandoned objects are frozen and tripwire points wait until it slows down.
 """
 from __future__ import annotations
 
@@ -16,6 +24,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from .. import anchor as _anchor
+from .. import geo as _geo
 from . import clips, conf
 from .events import events as _events
 from .store import store as _store
@@ -55,6 +65,7 @@ class Candidate:
     last_t: float
     baseline: bool
     flagged: bool = False
+    pose: Any = None            # camera pose the box / anchor refer to (PTZ), None = image space
 
 
 @dataclass
@@ -109,9 +120,13 @@ class CameraEngine:
         return _events.trigger(trig)
 
     # ------------------------------------------------------------------ main entry
-    def update(self, camera_state, detections, w: int, h: int, t: float, zones, settings) -> FrameInfo:
+    def update(self, camera_state, detections, w: int, h: int, t: float, zones, settings, view=None) -> FrameInfo:
         if w <= 0 or h <= 0:
             return EMPTY
+        if view is None:
+            view = _anchor.view_for(camera_state, t)
+        from ..ptz.pose import FAST_DEG_S
+        fast = view.active and view.speed > FAST_DEG_S
         cfg = _store.camera_config(self.camera_id)
         if self.last_t is None or t - self.last_t > RESTART_GAP_S:
             self.baseline_until = t + ABANDON_BASELINE_S
@@ -127,9 +142,9 @@ class CameraEngine:
         live = [d for d in detections
                 if (tr := tracks.get(d.track_key)) is not None and tr.missing_since is None]
 
-        alarm_zones = self._zones(camera_state, cfg, zones, live, w, h, t, alarms_on)
-        wires = self._wires(camera_state, cfg, tracks, w, h, t, alarms_on)
-        abandoned = self._abandoned(camera_state, cfg, live, w, h, t, settings)
+        alarm_zones = self._zones(camera_state, cfg, zones, live, w, h, t, alarms_on, fast)
+        wires = self._wires(camera_state, cfg, tracks, w, h, t, alarms_on, view, fast)
+        abandoned = self._abandoned(camera_state, cfg, live, w, h, t, settings, view, fast)
 
         rules_active = alarms_on and any(r.get("enabled") for r in cfg["zone_rules"].values())
         wire_alarms = alarms_on and any(wd.get("alarm") for wd in cfg["tripwires"])
@@ -137,7 +152,7 @@ class CameraEngine:
         return FrameInfo(t=t, alarm_zones=alarm_zones, wires=wires, abandoned=abandoned)
 
     # ------------------------------------------------------------------ zones
-    def _zones(self, camera_state, cfg, zones, live, w, h, t, alarms_on) -> frozenset:
+    def _zones(self, camera_state, cfg, zones, live, w, h, t, alarms_on, fast=False) -> frozenset:
         rules = cfg["zone_rules"]
         out = set()
         seen = set()
@@ -161,11 +176,17 @@ class CameraEngine:
                     if zs.active_until > t:
                         out.add(zid)
                     continue
+            if zone.get("_hidden") or fast:
+                # out of view (PTZ looks elsewhere) or camera turning fast: freeze the state
+                if zs.active_until > t:
+                    out.add(zid)
+                continue
             try:
                 x1, y1, x2, y2 = (float(v) for v in zone["box"])
             except (KeyError, TypeError, ValueError):
                 continue
             x1, x2, y1, y2 = x1 * w, x2 * w, y1 * h, y2 * h
+            poly = zone.get("_poly_px")
             classes = rule.get("classes") or ()
             dwell = float(rule.get("min_dwell_s", 0.0))
             present = {}
@@ -175,6 +196,8 @@ class CameraEngine:
                 if classes and d.cls_name.lower() not in classes:
                     continue
                 if not (x1 <= d.cx <= x2 and y1 <= d.cy <= y2):
+                    continue
+                if poly and not _geo.point_in_polygon(d.cx, d.cy, poly):
                     continue
                 enter = zs.enter.get(d.track_key, t)
                 present[d.track_key] = enter
@@ -201,7 +224,7 @@ class CameraEngine:
         return frozenset(out)
 
     # ------------------------------------------------------------------ tripwires
-    def _wires(self, camera_state, cfg, tracks, w, h, t, alarms_on) -> tuple:
+    def _wires(self, camera_state, cfg, tracks, w, h, t, alarms_on, view=None, fast=False) -> tuple:
         wires_cfg = cfg["tripwires"]
         if not wires_cfg:
             self.wires.clear()
@@ -209,31 +232,45 @@ class CameraEngine:
             return ()
         history = getattr(camera_state, "track_history", None) or {}
         margin = WIRE_MARGIN * math.hypot(w, h)
+        anchored = view is not None and view.active
+        mapper = _anchor.PointMapper(camera_state, view) if anchored else None
         geo = []
         for wd in wires_cfg:
             ws = self.wires.get(wd["id"])
             if ws is None:
                 ws = self.wires[wd["id"]] = WireState()
+            # crossing geometry lives in the view the wire was drawn in (world-fixed for PTZ)
             ax, ay = wd["a"][0] * w, wd["a"][1] * h
             bx, by = wd["b"][0] * w, wd["b"][1] * h
             length = math.hypot(bx - ax, by - ay) or 1.0
-            geo.append((wd, ws, ax, ay, bx, by, length))
+            wpose = _anchor.anchor_of(wd) if anchored else None
+            geo.append((wd, ws, ax, ay, bx, by, length, wpose))
 
         for key, pts in history.items():
-            if not pts:
-                continue
+            if not pts or fast:
+                continue            # fast camera motion: points stay queued (evaluated with their pose later)
             last = self.hist_t.get(key, -math.inf)
             if pts[-1][2] <= last:
                 continue
             tr = tracks.get(key)
             cls = tr.det.cls_name if tr is not None else ""
-            for px, py, pt in pts:
-                if pt <= last:
-                    continue
-                for wd, ws, ax, ay, bx, by, length in geo:
+            new_pts = [p for p in pts if p[2] > last]
+            rays = mapper.rays(new_pts, w, h) if mapper is not None else None
+            mapped = {}
+            for i, (px0, py0, pt) in enumerate(new_pts):
+                for wd, ws, ax, ay, bx, by, length, wpose in geo:
                     classes = wd.get("classes") or ()
                     if classes and cls.lower() not in classes:
                         continue
+                    if rays is not None:
+                        m = mapped.get(id(wd))
+                        if m is None:
+                            m = mapped[id(wd)] = mapper.to_anchor(rays, wpose, w, h)
+                        if not m[1][i]:
+                            continue        # behind the wire's view: cannot be on either side
+                        px, py = float(m[0][i, 0]), float(m[0][i, 1])
+                    else:
+                        px, py = px0, py0
                     dist = ((bx - ax) * (py - ay) - (by - ay) * (px - ax)) / length
                     if abs(dist) < margin:
                         continue
@@ -270,7 +307,11 @@ class CameraEngine:
             if len(ws.sides) > len(history):
                 for key in [k for k in ws.sides if k not in history]:
                     del ws.sides[key]
-            out.append((wd, ws.n_in, ws.n_out, ws.flash_until > t))
+            draw = wd
+            if anchored:
+                seg = _anchor.project_wire(view, wd)
+                draw = dict(wd, _hidden=True) if seg is None else dict(wd, a=list(seg[0]), b=list(seg[1]))
+            out.append((draw, ws.n_in, ws.n_out, ws.flash_until > t))
         for wid in [k for k in self.wires if k not in ids]:
             del self.wires[wid]
         return tuple(out)
@@ -281,7 +322,7 @@ class CameraEngine:
             ws.n_in = ws.n_out = 0
 
     # ------------------------------------------------------------------ abandoned objects
-    def _abandoned(self, camera_state, cfg, live, w, h, t, settings) -> tuple:
+    def _abandoned(self, camera_state, cfg, live, w, h, t, settings, view=None, fast=False) -> tuple:
         if not settings.get("abandoned", False):
             self.candidates.clear()
             return ()
@@ -289,24 +330,38 @@ class CameraEngine:
             secs = float(settings.get("abandoned_seconds", 30))
         except (TypeError, ValueError):
             secs = 30.0
-        for d in live:
+        anchored = view is not None and view.active
+        for cand in self.candidates:
+            # PTZ: a candidate the camera cannot see right now (or while it turns fast) is
+            # unobserved, not gone
+            if anchored and (fast or not _cand_visible(cand, view)):
+                cand.last_t = t
+        for d in ([] if fast else live):
             cls = d.cls_name.lower()
             if cls not in conf.ABANDON_CLASSES:
                 continue
-            box = (d.x1 / w, d.y1 / h, d.x2 / w, d.y2 / h)
-            c = ((box[0] + box[2]) * 0.5, (box[1] + box[3]) * 0.5)
-            best, best_iou = None, ABANDON_IOU
+            box_now = (d.x1 / w, d.y1 / h, d.x2 / w, d.y2 / h)
+            best, best_iou, best_box = None, ABANDON_IOU, box_now
             for cand in self.candidates:
                 if cand.cls != cls:
                     continue
+                box = box_now
+                if anchored and cand.pose is not None:
+                    box = _anchor.transfer_box(box_now, view.pose, cand.pose, view.lens)
+                    if box is None:
+                        continue
                 iou = _iou(box, cand.box)
                 if iou >= best_iou:
-                    best, best_iou = cand, iou
+                    best, best_iou, best_box = cand, iou, box
             if best is None:
+                c = ((box_now[0] + box_now[2]) * 0.5, (box_now[1] + box_now[3]) * 0.5)
                 self.cand_seq += 1
-                self.candidates.append(Candidate(self.cand_seq, cls, box, c, t, time.time(), t,
-                                                 baseline=t < self.baseline_until))
+                self.candidates.append(Candidate(self.cand_seq, cls, box_now, c, t, time.time(), t,
+                                                 baseline=t < self.baseline_until,
+                                                 pose=view.pose if anchored else None))
                 continue
+            box = best_box
+            c = ((box[0] + box[2]) * 0.5, (box[1] + box[3]) * 0.5)
             tol = max(0.02, 0.25 * min(box[2] - box[0], box[3] - box[1]))
             if math.hypot(c[0] - best.anchor[0], c[1] - best.anchor[1]) > tol:
                 # it moved: someone is carrying it, start over
@@ -330,7 +385,12 @@ class CameraEngine:
                           f"{cand.cls} left behind since {since}", cfg.get("abandoned_notify", True),
                           {"since": cand.first_wall})
             if cand.flagged:
-                out.append((cand.box, "NEW SINCE " + time.strftime("%H:%M", time.localtime(cand.first_wall))))
+                box = cand.box
+                if anchored and cand.pose is not None:
+                    box = _anchor.transfer_box(cand.box, cand.pose, view.pose, view.lens)
+                    if box is None or box[2] < 0 or box[0] > 1 or box[3] < 0 or box[1] > 1:
+                        continue
+                out.append((tuple(box), "NEW SINCE " + time.strftime("%H:%M", time.localtime(cand.first_wall))))
         self.candidates = keep
         return tuple(out)
 
@@ -343,6 +403,14 @@ class CameraEngine:
 
     def counts(self) -> dict[str, dict[str, int]]:
         return {wid: {"in": ws.n_in, "out": ws.n_out} for wid, ws in self.wires.items()}
+
+
+def _cand_visible(cand: Candidate, view) -> bool:
+    if cand.pose is None:
+        return True
+    cx, cy = cand.anchor
+    uv, front = _geo.transfer(((cx, cy),), cand.pose, view.pose, view.lens)
+    return bool(front[0]) and 0.0 <= uv[0, 0] <= 1.0 and 0.0 <= uv[0, 1] <= 1.0
 
 
 def schedule_active(sched: dict, minute_of_day: int) -> bool:
@@ -396,8 +464,8 @@ def peek(camera_id: str) -> Optional[CameraEngine]:
     return _engines.get(camera_id)
 
 
-def update(camera_state, detections, w, h, t, zones, settings) -> FrameInfo:
-    return get(camera_state.camera_id).update(camera_state, detections, w, h, t, zones, settings)
+def update(camera_state, detections, w, h, t, zones, settings, view=None) -> FrameInfo:
+    return get(camera_state.camera_id).update(camera_state, detections, w, h, t, zones, settings, view)
 
 
 def _wants_buffer(camera_id: str) -> bool:

@@ -26,12 +26,15 @@ ALARM_BGR: BGR = (78, 90, 255)
 PULSE_HZ = 1.6
 
 
-def update(camera_state, detections, w: int, h: int, t: float, zones: list) -> Tuple[list, object]:
-    """Run the alarm engine; returns (zones to draw, frame info)."""
+def update(camera_state, detections, w: int, h: int, t: float, zones: list, view=None) -> Tuple[list, object]:
+    """Run the alarm engine; returns (zones to draw, frame info).
+
+    ``zones`` may carry ``_poly_px`` / ``_hidden`` (world-anchored PTZ projection).
+    """
     try:
         from ..alerts import engine
         info = engine.update(camera_state, detections, w, h, t, zones,
-                             getattr(camera_state, "esp_settings", None) or {})
+                             getattr(camera_state, "esp_settings", None) or {}, view)
     except Exception as exc:  # pragma: no cover - never break rendering
         print(f"[Alerts] engine error: {exc.__class__.__name__}: {exc}")
         return zones, None
@@ -67,12 +70,16 @@ def draw_under(frame: np.ndarray, info, zones: list, st: R.Style, settings) -> N
         p = _pulse(info.t)
         # pulsing outer outline around alarmed zones
         for z in zones:
-            if not z.get("_alarm"):
+            if not z.get("_alarm") or z.get("_hidden"):
                 continue
-            x1, y1, x2, y2 = z["box"]
             off = st.t + int(round((2 + 6 * p) * st.ui))
-            rect = np.array(((x1 * w - off, y1 * h - off), (x2 * w + off, y1 * h - off),
-                             (x2 * w + off, y2 * h + off), (x1 * w - off, y2 * h + off)), np.int32)
+            if z.get("_poly_px"):
+                from .anchor_render import expand_polygon
+                rect = expand_polygon(z["_poly_px"], off)
+            else:
+                x1, y1, x2, y2 = z["box"]
+                rect = np.array(((x1 * w - off, y1 * h - off), (x2 * w + off, y1 * h - off),
+                                 (x2 * w + off, y2 * h + off), (x1 * w - off, y2 * h + off)), np.int32)
             color = mix(ALARM_BGR, (255, 255, 255), 0.35 * p)
             cv2.polylines(frame, [rect], True, ANTHRACITE, st.t + 2, R.AA)
             cv2.polylines(frame, [rect], True, color, st.t, R.AA)
@@ -80,6 +87,8 @@ def draw_under(frame: np.ndarray, info, zones: list, st: R.Style, settings) -> N
         if not settings.get("tripwires", True):
             return
         for wd, _n_in, _n_out, alarm in info.wires:
+            if wd.get("_hidden"):
+                continue
             base = ALARM_BGR if alarm else (parse_hex(wd.get("color", "")) or settings_primary(settings))
             color = mix(base, (255, 255, 255), 0.35 * p) if alarm else base
             a = (wd["a"][0] * w, wd["a"][1] * h)
@@ -118,6 +127,8 @@ def draw_over(frame: np.ndarray, info, st: R.Style, settings, text_color: BGR, b
         if settings.get("tripwires", True):
             up, down = _arrows()
             for wd, n_in, n_out, alarm in info.wires:
+                if wd.get("_hidden"):
+                    continue
                 accent = ALARM_BGR if alarm else (parse_hex(wd.get("color", "")) or settings_primary(settings))
                 runs = []
                 if alarm:

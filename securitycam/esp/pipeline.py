@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 
 from . import alerts_render as AR
+from . import anchor_render
 from . import motion
 from . import renderers as R
 from . import visuals
@@ -19,6 +20,7 @@ from .sensors import update_faces, update_hands
 from .colors import parse_hex
 from .settings import EspSettings
 from ..recognition import overlay as recog
+from .. import anchor
 
 _LOCK_INIT_GUARD = threading.Lock()
 _FADE_OPAQUE = 0.985
@@ -127,8 +129,12 @@ def draw_custom_esp(camera_state, frame, results, frame_ts: Optional[float] = No
         locked = getattr(camera_state, "esp_locked", None)
         if locked is not None and locked not in mst.tracks:
             camera_state.esp_locked = locked = None   # locked track was pruned
-        zones, alert_info = AR.update(camera_state, detections, w, h, t_frame,
-                                      list(getattr(camera_state, "esp_zones", None) or ()))
+        # PTZ: zones / wires / markers are world-anchored and projected into this frame's view
+        if getattr(camera_state, "esp_zones", None):
+            anchor.ensure_zone_anchors(camera_state)
+        view = anchor.view_for(camera_state, t_frame)
+        zones = anchor.project_zones(view, list(getattr(camera_state, "esp_zones", None) or ()), w, h)
+        zones, alert_info = AR.update(camera_state, detections, w, h, t_frame, zones, view)
         zones = zones if s.zones else []
 
     # recognition (names, plates, pets): per-frame context, lookups only
@@ -151,7 +157,18 @@ def draw_custom_esp(camera_state, frame, results, frame_ts: Optional[float] = No
     # ---- zones (under the detections; their pills are drawn on top later) ----------
     zone_tags = []
     for zone in zones:
+        if zone.get("_hidden"):
+            continue
         try:
+            poly = zone.get("_poly_px")
+            if poly:
+                count = anchor.count_inside(poly, [(d.cx, d.cy) for d in detections])
+                ztag = anchor_render.draw_zone_poly(
+                    frame, poly, parse_hex(zone.get("color", "")) or s.color_primary, str(zone.get("label", "")),
+                    count, s.color_text, st, s.label_background, placed)
+                if ztag is not None:
+                    zone_tags.append(ztag)
+                continue
             zx1, zy1, zx2, zy2 = zone["box"]
             zbox = (int(zx1 * w), int(zy1 * h), int(zx2 * w), int(zy2 * h))
             count = sum(1 for d in detections

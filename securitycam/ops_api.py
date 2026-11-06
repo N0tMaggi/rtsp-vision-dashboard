@@ -322,6 +322,69 @@ def ptz_preset_delete(camera_id: str, token: str):
     return _ptz_call(camera_id, lambda c: c.remove_preset(token))
 
 
+# ---------------------------------------------------------------------------- PTZ world anchoring
+@blueprint.route("/api/cameras/<camera_id>/ptz/pose")
+def ptz_pose(camera_id: str):
+    if state.get_camera_state(camera_id) is None:
+        return _err("unknown_camera", 404)
+    resp = jsonify(ptz.pose_status(camera_id))
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+def _pose_fusion(camera_id: str):
+    if state.get_camera_state(camera_id) is None:
+        return None, _err("unknown_camera", 404)
+    f = ptz.pose.peek(camera_id)
+    if f is None or not f.ptz_known:
+        return None, _err("not_ptz", 409)
+    return f, None
+
+
+@blueprint.route("/api/cameras/<camera_id>/ptz/pose/reanchor", methods=["POST"])
+def ptz_pose_reanchor(camera_id: str):
+    f, error = _pose_fusion(camera_id)
+    if error:
+        return error
+    f.reanchor()
+    return jsonify({"ok": True, "pose": ptz.pose_status(camera_id)})
+
+
+@blueprint.route("/api/cameras/<camera_id>/ptz/pose/sync", methods=["POST"])
+def ptz_pose_sync(camera_id: str):
+    f, error = _pose_fusion(camera_id)
+    if error:
+        return error
+    if not f.sync_onvif():
+        return _err("no_onvif_position", 409, pose=ptz.pose_status(camera_id))
+    return jsonify({"ok": True, "pose": ptz.pose_status(camera_id)})
+
+
+@blueprint.route("/api/cameras/<camera_id>/ptz/pose/calibrate", methods=["POST"])
+def ptz_pose_calibrate(camera_id: str):
+    """Auto FOV calibration: relative pan by ``degrees`` (default 20) and back, compared with vision."""
+    data = _body()
+    degrees = _num(data, "degrees", 20.0)
+    if not 5.0 <= abs(degrees) <= 60.0:
+        return _err("invalid_degrees")
+    f, error = _pose_fusion(camera_id)
+    if error:
+        return error
+    ctl, error = _ptz_ctl(camera_id)
+    if error:
+        return error
+    if ctl.state != "ready":
+        return _err("not_ready", 409, state=ctl.state)
+    if not ctl.caps.get("relative"):
+        return _err("unsupported", 400, feature="relative")
+    if f.calibration.get("state") == "running":
+        return _err("busy", 429)
+    import threading as _threading
+    _threading.Thread(target=ptz.pose.calibrate_fov, args=(camera_id, ctl, float(degrees)),
+                      name=f"PTZ-calibrate-{camera_id}", daemon=True).start()
+    return jsonify({"ok": True, "pose": ptz.pose_status(camera_id)})
+
+
 @blueprint.route("/api/cameras/<camera_id>/ptz/settings", methods=["PATCH"])
 def ptz_settings(camera_id: str):
     if config.get_camera(camera_id) is None:
