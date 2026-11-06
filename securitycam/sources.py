@@ -19,12 +19,15 @@ from __future__ import annotations
 import ipaddress
 import itertools
 import os
+import re
 import socket
 import threading
+import urllib.error
+import urllib.request
 import time
 from dataclasses import dataclass
 from typing import Any, Callable
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import cv2
 
@@ -406,14 +409,15 @@ class UrlVideoStream(VideoStream):
         _base_stream_attrs(self, camera_state)
         self.clock = clock
         try:
-            # Re-check right before FFmpeg connects (narrows the DNS-rebinding window).
-            check_destination(url)
+            # Re-check right before FFmpeg connects: every redirect hop and every HLS
+            # playlist / segment host is validated; FFmpeg only gets the final URL.
+            target = preflight(url)
         except SourceError as exc:
             self.stream = cv2.VideoCapture()
             camera_state.stream_error = f"Stream URL blocked: {URL_ERRORS.get(exc.code, exc.code)}"
             return
         with capture_env.options(FFMPEG_URL_OPTIONS):
-            self.stream = cv2.VideoCapture(url, cv2.CAP_FFMPEG, [
+            self.stream = cv2.VideoCapture(target, cv2.CAP_FFMPEG, [
                 cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, URL_TIMEOUT_MS,
                 cv2.CAP_PROP_READ_TIMEOUT_MSEC, URL_TIMEOUT_MS,
             ])
@@ -542,7 +546,7 @@ def _parse_cidrs(raw: str) -> tuple:
 
 
 # Master switch (legacy name SECURITYCAM_VIDEO_ALLOW_URLS still honoured when set).
-URLS_ENABLED = _env_flag("SECURITYCAM_VIDEO_URLS", _env_flag("SECURITYCAM_VIDEO_ALLOW_URLS", True))
+URLS_ENABLED = _env_flag("SECURITYCAM_VIDEO_URLS", _env_flag("SECURITYCAM_VIDEO_ALLOW_URLS", False))
 URL_ALLOW_PRIVATE = _env_flag("SECURITYCAM_VIDEO_URL_ALLOW_PRIVATE", False)
 URL_ALLOW_CIDRS = _parse_cidrs(os.getenv("SECURITYCAM_VIDEO_URL_ALLOW_CIDRS", ""))
 URL_TIMEOUT_MS = 10000
@@ -560,6 +564,11 @@ URL_ERRORS = {
     "unresolvable_host": "the host name could not be resolved",
     "blocked_address": "the host resolves to a loopback, link-local, metadata or otherwise reserved address",
     "private_address": "the host resolves to a private network address (allow it in .env)",
+    "too_many_redirects": "the URL redirects more than 5 times",
+    "bad_redirect": "the URL redirects to an unsupported location",
+    "url_unreachable": "the URL could not be fetched",
+    "bad_playlist": "the HLS playlist is invalid or too large",
+    "urls_disabled": "stream URLs are disabled on this server",
 }
 
 
@@ -619,6 +628,132 @@ def check_destination(url: str) -> None:
         code = classify_address(ip)
         if code is not None:
             raise SourceError(code)
+
+
+MAX_REDIRECTS = 5
+HTTP_TIMEOUT_S = 8.0
+PLAYLIST_MAX_BYTES = 2 * 1024 * 1024
+MAX_VARIANT_PLAYLISTS = 16
+_URI_ATTR = re.compile(r'URI="([^"]*)"')
+
+
+class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
+    """Never follow redirects automatically; preflight() follows them hop by hop."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _http_fetch(url: str, want_body: bool) -> tuple[int, dict[str, str], bytes]:
+    """One GET without following redirects or using proxies: (status, headers, body prefix)."""
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _RefuseRedirects())
+    req = urllib.request.Request(url, headers={"User-Agent": "SecurityCam/1.0", "Accept": "*/*"})
+    try:
+        resp = opener.open(req, timeout=HTTP_TIMEOUT_S)
+    except urllib.error.HTTPError as exc:
+        headers = {k.lower(): v for k, v in (exc.headers or {}).items()}
+        exc.close()
+        return exc.code, headers, b""
+    except (urllib.error.URLError, OSError, ValueError):
+        raise SourceError("url_unreachable") from None
+    with resp:
+        headers = {k.lower(): v for k, v in resp.headers.items()}
+        body = resp.read(PLAYLIST_MAX_BYTES + 1) if want_body else resp.read(4096)
+        return resp.status, headers, body
+
+
+def _resolve_redirects(url: str, want_body: bool = True) -> tuple[str, dict[str, str], bytes]:
+    """Follow up to MAX_REDIRECTS hops manually, validating every hop's destination."""
+    for _hop in range(MAX_REDIRECTS + 1):
+        parts = urlsplit(url)
+        if parts.scheme.lower() not in ("http", "https") or not parts.hostname:
+            raise SourceError("bad_redirect")
+        check_destination(url)
+        status, headers, body = _http_fetch(url, want_body)
+        if status in (301, 302, 303, 307, 308):
+            location = headers.get("location", "").strip()
+            if not location:
+                raise SourceError("bad_redirect")
+            url = urljoin(url, location)
+            continue
+        if status >= 400:
+            raise SourceError("url_unreachable")
+        return url, headers, body
+    raise SourceError("too_many_redirects")
+
+
+def _is_playlist(url: str, headers: dict[str, str], body: bytes) -> bool:
+    ctype = headers.get("content-type", "").lower()
+    return ("mpegurl" in ctype or urlsplit(url).path.lower().endswith((".m3u8", ".m3u"))
+            or body.lstrip().startswith(b"#EXTM3U"))
+
+
+def _playlist_uris(base: str, body: bytes) -> tuple[list[str], list[str]]:
+    """(variant playlist URIs, other URIs: segments, keys, maps, renditions), absolute."""
+    if len(body) > PLAYLIST_MAX_BYTES:
+        raise SourceError("bad_playlist")
+    text = body.decode("utf-8", "replace")
+    if not text.lstrip().startswith("#EXTM3U"):
+        raise SourceError("bad_playlist")
+    variants: list[str] = []
+    others: list[str] = []
+    next_is_variant = False
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            for uri in _URI_ATTR.findall(line):
+                target = urljoin(base, uri)
+                (variants if line.startswith(("#EXT-X-MEDIA", "#EXT-X-I-FRAME-STREAM-INF")) else others).append(target)
+            if line.startswith("#EXT-X-STREAM-INF"):
+                next_is_variant = True
+            continue
+        (variants if next_is_variant else others).append(urljoin(base, line))
+        next_is_variant = False
+    return variants, others
+
+
+def _check_hosts(uris: list[str]) -> None:
+    seen: set[tuple[str, str, int | None]] = set()
+    for uri in uris:
+        parts = urlsplit(uri)
+        if parts.scheme.lower() not in ("http", "https") or not parts.hostname:
+            raise SourceError("bad_playlist")
+        key = (parts.scheme.lower(), parts.hostname, parts.port)
+        if key not in seen:
+            seen.add(key)
+            check_destination(uri)
+
+
+def preflight(url: str) -> str:
+    """Validate a URL source end to end and return the URL to hand to FFmpeg.
+
+    RTSP: destination check only. HTTP(S): redirects are resolved here (each hop
+    checked) and FFmpeg gets the final URL; HLS playlists (and their variant
+    playlists) are fetched and every URI host must pass the same check.
+    """
+    scheme = urlsplit(url).scheme.lower()
+    if scheme not in URL_SCHEMES:
+        raise SourceError("unsupported_scheme")
+    if scheme == "rtsp":
+        check_destination(url)
+        return url
+    final, headers, body = _resolve_redirects(url)
+    if not _is_playlist(final, headers, body):
+        return final
+    variants, others = _playlist_uris(final, body)
+    _check_hosts(others)
+    if len(variants) > MAX_VARIANT_PLAYLISTS:
+        raise SourceError("bad_playlist")
+    for variant in dict.fromkeys(variants):
+        _check_hosts([variant])
+        v_final, _h, v_body = _resolve_redirects(variant)
+        if v_final != variant:
+            raise SourceError("bad_redirect")      # FFmpeg would fetch the original URI and follow on its own
+        nested, segs = _playlist_uris(v_final, v_body)
+        _check_hosts(nested + segs)
+    return final
 
 
 def validate_url(raw: Any) -> str:
@@ -692,7 +827,7 @@ def open_url(raw_url: Any, label: Any = None, copy_from: str | None = None) -> s
     if not URLS_ENABLED:
         raise SourceError("urls_disabled", 403)
     url = validate_url(raw_url)
-    check_destination(url)
+    preflight(url)
     with _lock:
         for cs in state.list_camera_states():
             if cs.source is not None and cs.source.kind == "url" and cs.source.url == url:

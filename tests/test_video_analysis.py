@@ -84,6 +84,20 @@ class LibraryCase(unittest.TestCase):
         library.LIBRARY.root, library.LIBRARY.incoming, library.LIBRARY.max_total = self._orig
         shutil.rmtree(self.root, ignore_errors=True)
 
+    def enable_urls(self, http: dict | None = None):
+        """Turn URL sources on and answer HTTP from ``http`` {url: (status, headers, body)}."""
+        self.http = dict(http or {})
+        self.fetched: list = []
+
+        def fake_fetch(url, want_body):
+            self.fetched.append(url)
+            return self.http.get(url, (200, {"content-type": "video/mp4"}, b"\x00" * 16))
+
+        for target, value in ((sources, ("URLS_ENABLED", True)), (sources, ("_http_fetch", fake_fetch))):
+            patcher = mock.patch.object(target, value[0], value[1])
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     def add_clip(self, name="clip.mp4", path: Path = CLIP) -> dict:
         r = upload(self.client, path.read_bytes(), name)
         self.assertEqual(r.status_code, 200, r.get_json())
@@ -434,6 +448,7 @@ class SourceTests(LibraryCase):
         self.assertEqual(self.client.post(f"/api/cameras/{cid}/update_esp", json={"heatmap": True}).status_code, 200)
 
     def test_url_source_validation(self):
+        self.enable_urls()
         for bad, code in (("file:///etc/passwd", "unsupported_scheme"), ("javascript:alert(1)", "unsupported_scheme"),
                           ("ftp://x/y.mp4", "unsupported_scheme"), ("http://", "invalid_url"), (5, "invalid_url"),
                           ("http://a b/x", "invalid_url")):
@@ -477,6 +492,10 @@ def fake_dns(table: dict):
 
 class UrlPolicyTests(LibraryCase):
     """SSRF policy for URL sources, all through the HTTP API."""
+
+    def setUp(self):
+        super().setUp()
+        self.enable_urls()
 
     def post(self, url):
         return self.client.post("/api/sources/url", json={"url": url})
@@ -533,6 +552,7 @@ class UrlPolicyTests(LibraryCase):
         with fake_dns({"v6.example": ["::ffff:169.254.169.254"]}):
             self.assertRefused("http://v6.example/x")
         self.assertRefused("http://does-not-exist.invalid/x", ("unresolvable_host",))
+        self.http["https://cams.example.org/live/index.m3u8"] = (200, {}, b"#EXTM3U\n#EXTINF:4,\nseg1.ts\n")
         with fake_dns({"cams.example.org": ["93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946"]}):
             r = self.post("https://cams.example.org/live/index.m3u8")
         self.assertEqual(r.status_code, 200, r.get_json())
@@ -544,6 +564,136 @@ class UrlPolicyTests(LibraryCase):
             self.assertEqual(r.status_code, 403)
             self.assertEqual(r.get_json()["error"], "urls_disabled")
             self.assertFalse(self.client.get("/api/videos").get_json()["allow_urls"])
+            self.assertEqual(self.fetched, [])                 # nothing fetched while disabled
+        # uploads are unaffected by the switch
+        with mock.patch.object(sources, "URLS_ENABLED", False):
+            self.add_clip()
+
+    def test_url_sources_off_by_default(self):
+        self.assertIn("SECURITYCAM_VIDEO_URLS", Path(sources.__file__).read_text(encoding="utf-8"))
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("SECURITYCAM_VIDEO_URLS", None)
+            os.environ.pop("SECURITYCAM_VIDEO_ALLOW_URLS", None)
+            self.assertFalse(sources._env_flag("SECURITYCAM_VIDEO_URLS", sources._env_flag("SECURITYCAM_VIDEO_ALLOW_URLS", False)))
+
+    PUBLIC = {"start.example": ["93.184.216.34"], "cdn.example": ["93.184.216.35"], "lan.example": ["192.168.1.7"]}
+
+    def redirect(self, to):
+        return (302, {"location": to}, b"")
+
+    def test_redirects_to_internal_addresses_rejected(self):
+        for target, code in (("http://127.0.0.1/x.mp4", "blocked_address"),
+                             ("http://169.254.169.254/latest/meta-data/", "blocked_address"),
+                             ("http://192.168.1.10/cam.mjpg", "private_address"),
+                             ("http://lan.example/cam.mjpg", "private_address"),
+                             ("/relative-but-fine.mp4", None),
+                             ("file:///etc/passwd", "bad_redirect")):
+            self.http = {"http://start.example/v.mp4": self.redirect(target)}
+            with fake_dns(self.PUBLIC):
+                r = self.post("http://start.example/v.mp4")
+            if code is None:
+                self.assertEqual(r.status_code, 200, r.get_json())
+            else:
+                self.assertEqual(r.status_code, 400, target)
+                self.assertEqual(r.get_json()["error"], code, target)
+            self.assertNotIn(target, self.fetched)            # the bad hop is never requested
+        sources.close_all()
+
+    def test_redirect_chain_limit(self):
+        chain = {f"http://start.example/{i}": self.redirect(f"http://cdn.example/{i + 1}") for i in range(0, 6, 2)}
+        chain.update({f"http://cdn.example/{i}": self.redirect(f"http://start.example/{i + 1}") for i in range(1, 7, 2)})
+        self.http = chain                                    # 0 -> 1 -> ... -> 6: six redirects
+        with fake_dns(self.PUBLIC):
+            r = self.post("http://start.example/0")
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.get_json()["error"], "too_many_redirects")
+        self.http = {k: v for k, v in chain.items() if k not in ("http://cdn.example/5",)}   # 5 hops -> fine
+        with fake_dns(self.PUBLIC):
+            r = self.post("http://start.example/0")
+        self.assertEqual(r.status_code, 200, r.get_json())
+        cid = r.get_json()["camera_id"]
+        # FFmpeg only ever sees the final, validated URL
+        seen = {}
+        real_capture = cv2.VideoCapture
+
+        def fake_capture(*args, **kwargs):
+            if args:
+                seen["url"] = args[0]
+            return real_capture()
+
+        with fake_dns(self.PUBLIC), mock.patch.object(sources.cv2, "VideoCapture", fake_capture):
+            sources.UrlVideoStream(state.get_camera_state(cid).source.url, state.get_camera_state(cid)).release()
+        self.assertEqual(seen["url"], "http://cdn.example/5")
+
+    HLS_HEAD = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:4\n"
+
+    def test_hls_with_private_segment_rejected(self):
+        media = self.HLS_HEAD + "#EXTINF:4,\nseg1.ts\n#EXTINF:4,\nhttp://lan.example/seg2.ts\n"
+        self.http = {"http://start.example/live.m3u8": (200, {"content-type": "application/vnd.apple.mpegurl"}, media.encode())}
+        with fake_dns(self.PUBLIC):
+            r = self.post("http://start.example/live.m3u8")
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.get_json()["error"], "private_address")
+        # a key on the metadata address, a playlist served without .m3u8 / content type
+        media = self.HLS_HEAD + '#EXT-X-KEY:METHOD=AES-128,URI="http://169.254.169.254/key"\n#EXTINF:4,\nseg1.ts\n'
+        self.http = {"http://start.example/play": (200, {"content-type": "text/plain"}, media.encode())}
+        with fake_dns(self.PUBLIC):
+            r = self.post("http://start.example/play")
+        self.assertEqual(r.get_json()["error"], "blocked_address")
+
+    def test_hls_master_variant_checked(self):
+        master = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000\nhttp://cdn.example/low/index.m3u8\n" \
+                 '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a",NAME="en",URI="audio/index.m3u8"\n'
+        good = self.HLS_HEAD + "#EXTINF:4,\nseg1.ts\n#EXTINF:4,\nhttps://cdn.example/seg2.ts\n"
+        bad = self.HLS_HEAD + "#EXTINF:4,\nhttp://127.0.0.1:8080/seg.ts\n"
+        self.http = {
+            "http://start.example/master.m3u8": (200, {"content-type": "application/x-mpegURL"}, master.encode()),
+            "http://cdn.example/low/index.m3u8": (200, {}, good.encode()),
+            "http://start.example/audio/index.m3u8": (200, {}, bad.encode()),
+        }
+        with fake_dns(self.PUBLIC):
+            r = self.post("http://start.example/master.m3u8")
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.get_json()["error"], "blocked_address")
+        self.http["http://start.example/audio/index.m3u8"] = (200, {}, good.encode())
+        with fake_dns(self.PUBLIC):
+            r = self.post("http://start.example/master.m3u8")
+        self.assertEqual(r.status_code, 200, r.get_json())
+
+    def test_clean_public_hls_passes(self):
+        media = self.HLS_HEAD + "#EXTINF:4,\nseg1.ts\n#EXTINF:4,\nhttps://cdn.example/seg2.ts\n#EXT-X-ENDLIST\n"
+        self.http = {"https://start.example/live.m3u8": (200, {"content-type": "application/vnd.apple.mpegurl"}, media.encode())}
+        with fake_dns(self.PUBLIC):
+            r = self.post("https://start.example/live.m3u8")
+        self.assertEqual(r.status_code, 200, r.get_json())
+
+    def test_fetch_refuses_automatic_redirects(self):
+        # the real urllib path: a 302 is reported, not followed (local server, check bypassed)
+        import http.server
+
+        hits = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                hits.append(self.path)
+                self.send_response(302)
+                self.send_header("Location", "/second")
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        srv = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            mock.patch.stopall()
+            status, headers, _ = sources._http_fetch(f"http://127.0.0.1:{srv.server_port}/first", True)
+        finally:
+            srv.shutdown()
+            srv.server_close()
+        self.assertEqual(status, 302)
+        self.assertEqual(headers["location"], "/second")
+        self.assertEqual(hits, ["/first"])
 
     def test_reader_rechecks_and_whitelists_protocols(self):
         with fake_dns({"cams.example.com": ["93.184.216.34"]}):

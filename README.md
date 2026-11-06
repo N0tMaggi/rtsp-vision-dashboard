@@ -621,10 +621,12 @@ random ids. Nothing from an upload is executed, but the file *is* decoded by FFm
 media you trust as much as any other video you would open. When the library exceeds its total size,
 the oldest clips that are not currently open are deleted.
 
-### Stream URLs (optional)
+### Stream URLs (optional, off by default)
 
-*Open stream URL* plays a network source directly as a live virtual camera (no seeking): direct
-HTTP(S) video files, MJPEG, HLS (`.m3u8`) and RTSP. Only `http`, `https` and `rtsp` are accepted.
+With `SECURITYCAM_VIDEO_URLS=true` the library also offers *Open stream URL*: a network source
+played directly as a live virtual camera (no seeking) - direct HTTP(S) video files, MJPEG, HLS
+(`.m3u8`) and RTSP. Only `http`, `https` and `rtsp` are accepted. Uploaded files work regardless
+of this switch; while it is off the UI only shows a one-line hint how to enable it.
 
 The **server** fetches the URL, which makes this an SSRF surface. Mitigations:
 
@@ -634,24 +636,28 @@ The **server** fetches the URL, which makes this an SSRF surface. Mitigations:
   are always refused; IPv4 embedded in IPv6 (mapped, 6to4, Teredo, NAT64) is checked too.
 - Private networks (RFC 1918, ULA, CGNAT, ...) are refused unless you opt in with
   `SECURITYCAM_VIDEO_URL_ALLOW_PRIVATE=true` or list ranges in `SECURITYCAM_VIDEO_URL_ALLOW_CIDRS`.
-- The check is repeated right before FFmpeg connects, and FFmpeg is restricted to the network
+- **HTTP(S) redirects are resolved by SecurityCam itself** (urllib, automatic redirects refused,
+  no proxies): at most 5 hops, every hop's destination checked; FFmpeg only gets the final URL.
+- **HLS**: the playlist is fetched by SecurityCam (same hop checks) and every variant, segment, key,
+  map and rendition URI is resolved and its host checked; variant playlists are fetched and checked
+  the same way. One failing host rejects the source.
+- All of this is repeated each time the reader (re)connects, and FFmpeg is restricted to the network
   protocols `http,https,tcp,tls,rtsp,rtp,udp,crypto` (no `file:`, `pipe:`, `concat:`, ...). The option is
   set through `OPENCV_FFMPEG_CAPTURE_OPTIONS` only for the URL open (under a lock, restored afterwards);
   camera RTSP opens keep your own value of that variable.
-- `SECURITYCAM_VIDEO_URLS=false` switches URL sources off entirely (the UI hides the input).
 
-Residual risks you accept by leaving URL sources on:
+Residual risks you accept by enabling URL sources:
 
 - **DNS rebinding**: FFmpeg resolves the host again itself; a hostile DNS server can answer
-  differently between the check and FFmpeg's connect.
-- **Redirects**: OpenCV/FFmpeg offer no way to disable or limit HTTP redirects, so a public URL
-  can redirect to an internal address.
-- **HLS** playlists can reference segments and keys on other hosts, which FFmpeg fetches without
-  this check.
+  differently between SecurityCam's check and FFmpeg's connect.
+- **FFmpeg-internal requests SecurityCam cannot see**: for a live HLS stream FFmpeg refreshes the
+  media playlist itself, so segments added later are not checked; a server may also answer FFmpeg's
+  own request with a redirect (OpenCV/FFmpeg offer no option to disable redirects).
+- **RTSP** sources only get the destination check; RTSP-level redirects are followed by FFmpeg.
 - Credentials in a URL (`rtsp://user:pass@host/...`) are kept in memory only and redacted in the
   API and logs.
 
-If the server is reachable by people you don't trust, set `SECURITYCAM_VIDEO_URLS=false`.
+Only enable URL sources on a server that untrusted people cannot reach.
 
 ### Video settings (.env)
 
@@ -659,7 +665,7 @@ If the server is reachable by people you don't trust, set `SECURITYCAM_VIDEO_URL
 |---|---:|---|
 | `SECURITYCAM_VIDEO_MAX_MB` | `1024` | Max size of one upload (MB) |
 | `SECURITYCAM_VIDEO_MAX_TOTAL_MB` | `10240` | Max total library size; oldest unopened clips are pruned |
-| `SECURITYCAM_VIDEO_URLS` | `true` | Allow stream URL sources (public addresses only by default) |
+| `SECURITYCAM_VIDEO_URLS` | `false` | Allow stream URL sources (then public addresses only, unless allowed below) |
 | `SECURITYCAM_VIDEO_URL_ALLOW_PRIVATE` | `false` | Also allow private / LAN addresses for URL sources |
 | `SECURITYCAM_VIDEO_URL_ALLOW_CIDRS` | empty | Comma-separated ranges allowed in addition, e.g. `192.168.1.0/24` |
 
