@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { api } from "@/lib/api"
 import { opsApi, type PtzSettings, type PtzStatus } from "@/lib/ops-api"
 
 const POLL_MS = 1500
+/** While the camera moves or calibrates, the anchoring status line follows closely. */
+const POLL_FAST_MS = 400
 /** Re-send a held move well inside the server watchdog (1.5 s). */
 const HOLD_REPEAT_MS = 500
 
@@ -41,10 +44,14 @@ export function usePtz(cameraId: string | null, active: boolean, keyboard: boole
     setStatus(null)
     setMessage(null)
     void refresh()
+  }, [refresh])
+
+  const fast = Boolean(status?.pose?.moving || status?.pose?.calibration?.state === "running")
+  useEffect(() => {
     if (!active) return
-    const t = window.setInterval(() => void refresh(), POLL_MS)
+    const t = window.setInterval(() => void refresh(), fast ? POLL_FAST_MS : POLL_MS)
     return () => window.clearInterval(t)
-  }, [active, refresh])
+  }, [active, fast, refresh])
 
   const connect = useCallback(async () => {
     if (!cameraId) return
@@ -161,10 +168,25 @@ export function usePtz(cameraId: string | null, active: boolean, keyboard: boole
     [cameraId],
   )
 
+  const setWorldAnchor = useCallback(
+    async (on: boolean) => {
+      if (!cameraId) return
+      setStatus((s) => (s?.pose ? { ...s, pose: { ...s.pose, world_anchor: on } } : s))
+      await api.updateEsp(cameraId, { world_anchor: on }).catch(() => setMessage("The setting could not be saved."))
+      await refresh()
+    },
+    [cameraId, refresh],
+  )
+
   return {
     status,
     message,
     ready,
+    setWorldAnchor,
+    reanchor: () => cameraId && act(() => opsApi.ptzReanchor(cameraId), "Could not re-anchor."),
+    syncOnvif: () => cameraId && act(() => opsApi.ptzSyncOnvif(cameraId), "The camera reports no usable position."),
+    calibrate: (degrees = 20) =>
+      cameraId && act(() => opsApi.ptzCalibrate(cameraId, degrees), "Calibration could not start (camera busy or not ready)."),
     connect,
     hold,
     center,

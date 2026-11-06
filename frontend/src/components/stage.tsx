@@ -388,6 +388,7 @@ export function Stage(props: Props) {
           targets={list}
           lockedId={lockedId}
           hoveredId={hovered?.id ?? null}
+          pose={targets?.pose}
           onFocus={(b) => {
             onFollowChange(false)
             focus(b, 10, view.view.current.s)

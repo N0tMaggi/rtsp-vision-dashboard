@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
-import { Copy, Navigation, Plus, Trash2 } from "lucide-react"
+import { Anchor, Copy, Crosshair, Navigation, Plus, Ruler, Trash2 } from "lucide-react"
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
 import type { PtzControls } from "@/hooks/use-ptz"
-import type { PtzSettings, PtzStatus } from "@/lib/ops-api"
+import type { PoseStatus, PtzSettings, PtzStatus } from "@/lib/ops-api"
 import { cn } from "@/lib/utils"
 
 const ease = [0.22, 1, 0.36, 1] as const
@@ -91,16 +91,19 @@ export function PtzPanel({ ptz, mode, onModeChange }: Props) {
           {s.caps.presets && <PtzPresets ptz={ptz} status={s} />}
           <div className="mt-4 space-y-5 border-t border-border pt-4">
             {CALIBRATION.filter((c) => c.key === "speed" || s.caps.relative).map((c) => (
-              <CalibrationSlider key={c.key} def={c} value={s.settings[c.key]} onCommit={(v) => void ptz.updateSettings({ [c.key]: v })} />
+              <CalibrationSlider key={c.key} def={c} value={s.settings[c.key] ?? c.min} onCommit={(v) => void ptz.updateSettings({ [c.key]: v })} />
             ))}
             {s.caps.relative && (
               <p className="text-xs leading-relaxed text-muted-foreground">
-                If a right-click overshoots, raise the FOV; if it stops short, lower it.
+                If a right-click overshoots, raise the FOV; if it stops short, lower it. Anchored zones use the same
+                FOV: after a change, pan a little and check that a zone stays on its spot.
               </p>
             )}
           </div>
         </>
       )}
+
+      {s.pose && (s.state === "ready" || s.pose.ptz_known) && <AnchorSection ptz={ptz} status={s} pose={s.pose} />}
 
       <AnimatePresence>
         {ptz.message && (
@@ -110,6 +113,138 @@ export function PtzPanel({ ptz, mode, onModeChange }: Props) {
         )}
       </AnimatePresence>
     </>
+  )
+}
+
+const SOURCE_LABEL: Record<PoseStatus["source"], string> = {
+  both: "ONVIF + Vision",
+  onvif: "ONVIF",
+  vision: "Vision",
+  none: "No Fix",
+}
+
+const fmtDeg = (v: number) => `${v >= 0 ? "" : "−"}${Math.abs(v).toFixed(1)}°`
+
+/** World anchoring: zones, tripwires and the heatmap stay put in the room while the camera moves. */
+function AnchorSection({ ptz, status, pose }: { ptz: PtzControls; status: PtzStatus; pose: PoseStatus }) {
+  const on = pose.world_anchor
+  const live = pose.active
+  const calib = pose.calibration
+  const calibrating = calib?.state === "running"
+  const drift = pose.drift_deg
+  const driftTone = drift < 0.5 ? "text-muted-foreground" : drift < 2 ? "text-primary" : "text-destructive"
+  const onvifNote = pose.onvif?.stale
+    ? "The camera's reported position never changes; using the picture only."
+    : pose.onvif?.supported === false
+      ? "The camera reports no absolute position; using the picture only."
+      : pose.onvif?.inverted?.some(Boolean)
+        ? "The camera reports an inverted axis; corrected automatically."
+        : null
+  return (
+    <section className="mt-4 border-t border-border pt-4" aria-label="World anchoring">
+      <label
+        htmlFor="ptz-anchor"
+        className="-mx-2 flex cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-2 text-sm transition-colors hover:bg-accent/70"
+      >
+        <span className="flex items-center gap-2">
+          <Anchor className={cn("size-4", live ? "text-primary" : "text-muted-foreground")} />
+          <span className={on ? "text-foreground" : "text-muted-foreground"}>Anchor Overlays</span>
+        </span>
+        <Switch id="ptz-anchor" checked={on} onCheckedChange={(v) => void ptz.setWorldAnchor(v)} />
+      </label>
+
+      <div className="mt-1 flex items-center gap-2 text-xs" role="status">
+        <span className="relative flex size-2">
+          {live && pose.moving && <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary/70" />}
+          <span className={cn("relative inline-flex size-2 rounded-full", live ? "bg-primary" : "bg-muted-foreground/50")} />
+        </span>
+        <span className={cn("font-medium tracking-wide", live ? "text-primary" : "text-muted-foreground")}>
+          {live ? (pose.moving ? "Tracking Move" : "Anchored") : on ? "Waiting For PTZ" : "Off"}
+        </span>
+        {live && <span className="ml-auto text-muted-foreground">{SOURCE_LABEL[pose.source]}</span>}
+      </div>
+
+      {live && (
+        <dl className="mt-3 grid grid-cols-3 gap-2 text-xs">
+          <Stat label="Pan" value={fmtDeg(pose.pose.pan)} />
+          <Stat label="Tilt" value={fmtDeg(pose.pose.tilt)} />
+          <Stat label="FOV" value={pose.fov_h ? `${pose.fov_h.toFixed(0)}°` : "–"} />
+          <div className="col-span-3 flex items-baseline justify-between rounded-md bg-background/50 px-2.5 py-1.5">
+            <dt className="text-muted-foreground">Drift</dt>
+            <dd className={cn("tabular-nums", driftTone)}>
+              ±{drift.toFixed(2)}° <span className="text-muted-foreground">{pose.drift_kind === "measured" ? "measured" : "estimated"}</span>
+            </dd>
+          </div>
+        </dl>
+      )}
+      {live && pose.vision === "lost" && (
+        <p className="mt-2 text-xs leading-relaxed text-destructive">
+          The picture has too little detail to track right now{pose.source === "onvif" ? "; following the camera's position." : "."}
+        </p>
+      )}
+      {live && onvifNote && <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{onvifNote}</p>}
+
+      {live && (
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => void ptz.reanchor()}
+            className="flex items-center justify-center gap-1.5 rounded-lg border border-primary/50 py-2 text-xs text-primary transition-colors hover:bg-primary/10"
+          >
+            <Crosshair className="size-3.5" /> Re-anchor Here
+          </button>
+          {pose.onvif?.aligned && !pose.onvif.stale ? (
+            <button
+              type="button"
+              onClick={() => void ptz.syncOnvif()}
+              className="flex items-center justify-center gap-1.5 rounded-lg border border-border py-2 text-xs text-foreground transition-colors hover:bg-accent"
+            >
+              <Navigation className="size-3.5" /> Sync To Camera
+            </button>
+          ) : (
+            <span />
+          )}
+          {status.state === "ready" && status.caps.relative && (
+            <button
+              type="button"
+              disabled={calibrating}
+              onClick={() => void ptz.calibrate(20)}
+              className="col-span-2 flex items-center justify-center gap-1.5 rounded-lg border border-border py-2 text-xs text-foreground transition-colors hover:bg-accent disabled:text-muted-foreground"
+            >
+              <Ruler className="size-3.5" /> {calibrating ? "Calibrating…" : "Calibrate FOV"}
+            </button>
+          )}
+        </div>
+      )}
+      <AnimatePresence>
+        {calib && calib.state !== "idle" && calib.message && (
+          <motion.p
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className={cn("mt-2 text-xs leading-relaxed", calib.state === "failed" ? "text-destructive" : "text-muted-foreground")}
+          >
+            {calib.message}
+            {calib.state === "done" && calib.fov_h ? ` FOV set to ${calib.fov_h.toFixed(0)}° × ${calib.fov_v?.toFixed(0)}°.` : ""}
+          </motion.p>
+        )}
+      </AnimatePresence>
+      {live && (
+        <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+          Zones, tripwires, the heatmap and markers stay on their spot in the room while the camera moves. Overlays look
+          right? Re-anchor Here locks that alignment and clears the drift. Calibrate FOV pans 20° and back to measure the lens.
+        </p>
+      )}
+    </section>
+  )
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md bg-background/50 px-2.5 py-1.5">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="tabular-nums text-foreground">{value}</dd>
+    </div>
   )
 }
 

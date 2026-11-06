@@ -71,17 +71,40 @@ export interface Target {
   speed_n?: number
 }
 
+/** Camera pose of a world-anchored PTZ camera (degrees; FOV is the effective one at this zoom). */
+export interface CameraPose {
+  pan: number
+  tilt: number
+  zoom: number
+  fov_h: number
+  fov_v: number
+  moving: boolean
+}
+
 export interface TargetsResponse {
   ts: number
   frame: { w: number; h: number }
   locked: number | null
   targets: Target[]
+  /** Present while overlays are world-anchored (PTZ). */
+  pose?: CameraPose
 }
 
 export interface Zone {
   id: string
   label: string
+  /** Bounding box in the current view (PTZ: projected from where it was drawn). */
   box: NBox
   color: string
   count: number
+  /** Newer backends: outline in the current view, normalized points (clipped to the frame). */
+  polygon?: [number, number][]
+  /** False while a PTZ camera looks elsewhere. */
+  in_view?: boolean
+  anchored?: boolean
+  /** Box as drawn, and the camera pose it was drawn at. */
+  drawn_box?: NBox
+  anchor?: { pan: number; tilt: number; zoom: number }
+  /** Corner directions (azimuth, elevation in degrees). */
+  world?: [number, number][]
 }

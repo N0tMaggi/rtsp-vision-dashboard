@@ -48,11 +48,8 @@ def blend_polygon(frame: np.ndarray, poly: np.ndarray, color: BGR, alpha: float)
     roi = frame[y0:y1, x0:x1]
     mask = np.zeros(roi.shape[:2], np.uint8)
     cv2.fillPoly(mask, [poly - (x0, y0)], 255)
-    sel = mask.astype(bool)
-    if not sel.any():
-        return
-    px = roi[sel].astype(np.float32)
-    roi[sel] = (px * (1.0 - alpha) + np.asarray(color, np.float32) * alpha + 0.5).astype(np.uint8)
+    blended = cv2.addWeighted(roi, 1.0 - alpha, R._solid(color, y1 - y0, x1 - x0), alpha, 0)
+    cv2.copyTo(blended, mask, roi)
 
 
 def expand_polygon(poly: Sequence[Tuple[float, float]], off: float) -> np.ndarray:

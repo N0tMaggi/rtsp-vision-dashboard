@@ -28,6 +28,13 @@ export interface Tripwire {
   color: string
   count_in: number
   count_out: number
+  /** Newer backends (PTZ world anchoring): a/b are in the current view; these describe the drawn line. */
+  in_view?: boolean
+  anchored?: boolean
+  drawn_a?: NPoint
+  drawn_b?: NPoint
+  anchor?: { pan: number; tilt: number; zoom: number }
+  world?: { a: NPoint; b: NPoint }
 }
 
 export interface AlertsConfig {
