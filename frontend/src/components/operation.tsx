@@ -142,5 +142,6 @@ export function useOperation({ cameras, activeId, open, refresh, menuOpen, right
     onAimAt,
     extraCategories,
     onCategoryChange: setCategory,
+    openSingle,
   }
 }

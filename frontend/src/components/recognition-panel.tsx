@@ -4,6 +4,7 @@ import { Camera, Check, Copy, Cpu, ImageUp, Loader2, ScanFace, Trash2, X, Zap } 
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
 import { useRecognition } from "@/hooks/use-recognition"
+import { openPlateLog } from "@/lib/platelog"
 import {
   errorText,
   recognitionApi,
@@ -547,6 +548,14 @@ function PlatesSection({ plates, onClear }: { plates: PlateEntry[]; onClear: () 
           )
         }
       />
+      <button
+        type="button"
+        onClick={openPlateLog}
+        className="mb-3 flex w-full items-center justify-between rounded-lg border border-border px-3 py-2 text-sm transition-colors duration-200 hover:border-primary/60 hover:text-primary"
+      >
+        Open Plate Log
+        <kbd className="rounded border border-border px-1.5 text-[10px] text-muted-foreground">P</kbd>
+      </button>
       {plates.length === 0 ? (
         <p className="text-xs leading-relaxed text-muted-foreground">
           No plates read yet. Plates need a vehicle detection and are read best when the car is close and the plate is

@@ -19,6 +19,7 @@ import numpy as np
 from . import faces as F
 from . import gallery
 from . import plates as P
+from . import platelog
 from .common import (PERSON_CLASS, FaceHit, RecogRuntime, RecogSettings, TrackInfo, is_vehicle,
                      runtime)
 
@@ -243,9 +244,13 @@ def run_plates(rt: RecogRuntime, frame: np.ndarray, dets: List[Det], ts: float) 
                 best, share = P.vote(ti.plate_votes, read.text, read.conf)
                 ti.plate_best, ti.plate_conf = best, share
                 _log_plate(rt, f"t{tid}", best or read.text, share, ti.plate_reads, tid, cls, thumb)
+                vote = (best or read.text, share, ti.plate_reads)
             else:
                 _log_plate(rt, f"p{P.normalize_plate(read.text)}", P.normalize_plate(read.text),
                            read.conf, 1, None, cls, thumb)
+                vote = (P.normalize_plate(read.text), read.conf, 1)
+        # persistent plate log (data/plates/): cheap bookkeeping here, image/disk work on its own thread
+        platelog.observe(rt.camera_id, tid if tid != -1 else None, cls, *vote, read, frame, box)
     with rt.lock:
         rt.plates_now = current
         rt.plates_ts = ts

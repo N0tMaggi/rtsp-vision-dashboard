@@ -715,6 +715,51 @@ Package `securitycam/recognition/`, UI category **Recognition** in the ESP menu.
 
 API (prefix `/api/recognition`): `GET /status`, `GET|POST /people` (multipart `name` + `photo`, or JSON `{name, candidate_id}`), `PATCH|DELETE /people/<id>`, `GET /people/<id>/thumb`, `GET /cameras/<id>/face_candidates`, `GET|DELETE /cameras/<id>/plates`, `GET /models`, `POST|DELETE /models/<model>/engine`.
 
+### License Plate Log
+
+Every confirmed plate read is logged persistently (package `securitycam/recognition/platelog.py`). A read is
+confirmed once the per-track vote has at least 2 reads and a 45 % share (without tracking: one read with
+OCR confidence >= 0.8). There is one entry per vehicle track and plate; while the track lives the entry is
+updated (text, vote share, reads, last seen) and its images are replaced when a clearly sharper/more confident
+read comes in. Each entry stores an upscaled + sharpened plate crop, a vehicle crop and the full frame
+(JPEG, max 1600 px wide) plus the plate and vehicle boxes in normalized frame coordinates.
+Image encoding and disk writes run on a background thread, never in the render path.
+
+Storage: `data/plates/platelog.sqlite3` (index), `data/plates/<camera>/<entry>/{plate,vehicle,frame}.jpg`,
+`data/plates/watchlist.json`. Oldest entries are removed by count/age.
+
+| Variable | Default | Description |
+|---|---:|---|
+| `SECURITYCAM_PLATES_LOG` | `true` | Persist confirmed reads (`false` = only the in-memory recent list) |
+| `SECURITYCAM_PLATES_MAX_COUNT` | `2000` | Keep at most this many entries (all cameras) |
+| `SECURITYCAM_PLATES_MAX_AGE_DAYS` | `30` | Delete older entries (`0` = keep) |
+
+**UI**: the plate button in the header (badge = new reads) or `P` opens the Plate Log; the Recognition panel
+has *Open Plate Log*. Search is tolerant to OCR confusions (0/O/D/Q, 1/I/L, 2/Z, 5/S, 6/G, 8/B) and one or two
+wrong characters. Filter by camera and time (1 h / 24 h / 7 d / a day), switch between single *Reads*,
+*Plates* (all sightings grouped per plate) and the *Watchlist*, export CSV/JSON (respects the filters).
+Clicking a read opens the viewer: the stored frame zooms onto the plate (wheel / drag / double-click;
+`←`/`→` browse, `V` frame/vehicle, `F` zoom to plate, `0` fit, `C` copy text, `Del` delete, `Esc` close).
+While the vehicle is still tracked on its camera, *Show Live* (`L`) switches to that camera, locks the
+vehicle and turns on follow so the live view zooms onto it.
+
+**Watchlist**: a logged read matching a watched plate raises an alarm event of kind `plate`
+(snapshot/clip/notifications as for zone alarms, one per entry, alarm cooldown applies).
+
+| Method | Path (prefix `/api/recognition/platelog`) | Purpose |
+|---|---|---|
+| `GET` | `?camera=&q=&since=&until=&watch=1&limit=&offset=` | Entries, newest first (best search match first with `q`) |
+| `GET` | `/summary?seen=<ts>` | Totals, number of entries first seen after `seen`, change version |
+| `GET` | `/plates?camera=&q=&since=&until=` | Entries grouped per plate (count, cameras, variants) |
+| `GET` | `/plates/<plate>` | All sightings of one plate |
+| `GET` | `/export?format=csv\|json&...filters` | Download the filtered log |
+| `GET` / `DELETE` | `/<entry_id>` | Entry / delete entry |
+| `DELETE` | `?camera=` | Clear the log (all or one camera) |
+| `GET` | `/<entry_id>/{plate,vehicle,frame}.jpg` | Images |
+| `GET` / `POST` | `/<entry_id>/live` | Is the vehicle still visible? / lock it as live target |
+| `GET` / `POST` | `/watchlist` | Watchlist / add `{"plate", "note"}` |
+| `DELETE` | `/watchlist/<watch_id>` | Remove from the watchlist |
+
 ## Roadmap
 
 - optional dashboard authentication
