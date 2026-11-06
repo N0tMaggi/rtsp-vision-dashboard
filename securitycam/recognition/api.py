@@ -274,3 +274,9 @@ def engine_delete(model_name: str):
     except engines.EngineError as exc:
         return _err(exc.code, 409 if exc.code == "busy" else 400)
     return jsonify({"ok": True, "deleted": existed})
+
+
+# ----------------------------------------------------------------------------- persistent plate log
+from .platelog_api import blueprint as _platelog_blueprint  # noqa: E402  (/api/recognition/platelog)
+
+blueprint.register_blueprint(_platelog_blueprint)
