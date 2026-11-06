@@ -21,6 +21,7 @@ def _camera_payload(camera_state: state.CameraRuntime) -> dict:
         "ip": camera_state.ip,
         "stream_path": camera_state.stream_path,
         "has_stream": bool(camera_state.rtsp_url),
+        "source_kind": camera_state.source_kind,   # "rtsp" | "file" | "url" (video analysis)
     }
 
 
@@ -239,6 +240,8 @@ def create_app() -> Flask:
     app.register_blueprint(visuals_bp)
     from .alerts.routes import blueprint as alerts_blueprint  # alarms, tripwires, events, snapshots
     app.register_blueprint(alerts_blueprint)
+    from .videos.api import blueprint as videos_blueprint  # video analysis: library, file/URL sources, playback
+    app.register_blueprint(videos_blueprint)
     return app
 
 

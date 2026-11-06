@@ -8,6 +8,7 @@ import { CameraSwitcher } from "@/components/camera-switcher"
 import { EspMenu } from "@/components/esp-menu"
 import { PlateLog, PlateLogButton } from "@/components/plate-log"
 import { useOperation } from "@/components/operation"
+import { useVideoAnalysis } from "@/components/video-analysis"
 import { Stage } from "@/components/stage"
 import type { Tool } from "@/components/stage-toolbar"
 import { LiveReadout, TelemetryBar } from "@/components/telemetry"
@@ -53,16 +54,18 @@ export default function App() {
     return () => mq.removeEventListener("change", on)
   }, [])
 
-  useEffect(() => {
-    api
-      .cameras()
-      .then((r) => {
+  const loadCameras = useCallback(
+    () =>
+      api.cameras().then((r) => {
         setCameras(r.cameras)
         setDefaultId(r.default_camera_id)
         setModels(r.available_models ?? [])
-      })
-      .catch(() => setLoadError("The SecurityCam server is not responding. Start it with python main.py, then reload this page."))
-  }, [])
+      }),
+    [],
+  )
+  useEffect(() => {
+    loadCameras().catch(() => setLoadError("The SecurityCam server is not responding. Start it with python main.py, then reload this page."))
+  }, [loadCameras])
 
   // M toggles the menu, like an in-game overlay.
   useEffect(() => {
@@ -201,6 +204,7 @@ export default function App() {
   const modelList = status?.available_models?.length ? status.available_models : models
   const rightInset = menuOpen && desktop ? 420 : undefined
   const ops = useOperation({ cameras, activeId, open, refresh, menuOpen, rightInset: rightInset ?? 24 })
+  const video = useVideoAnalysis({ cameras, activeId, open, reloadCameras: loadCameras, rightInset: rightInset ?? 24, single: ops.mode === "single" })
 
   // "Show Live": lock the logged vehicle on its camera, switch there and follow it.
   const { openSingle } = ops
@@ -243,6 +247,7 @@ export default function App() {
                 onTripwireDrawn={addTripwire}
                 rightInset={rightInset}
                 onAimAt={ops.onAimAt}
+                bottomInset={video.bottomInset}
               />
               </motion.div>
               )}
@@ -257,8 +262,9 @@ export default function App() {
                 <span className="hidden shrink-0 text-sm font-semibold sm:block">
                   SecurityCam<span className="text-primary">_</span>
                 </span>
-                <div className="min-w-0 flex-1">
-                  <CameraSwitcher cameras={cameras} activeId={activeId} onSelect={open} />
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <CameraSwitcher cameras={cameras} activeId={activeId} onSelect={open} onClose={(id) => void video.closeCamera(id)} />
+                  {video.entry}
                 </div>
                 {ops.viewToggle}
                 <LiveReadout status={status} live={live} />
@@ -341,6 +347,8 @@ export default function App() {
               >
                 <TelemetryBar status={status} />
               </motion.footer>
+              {video.playbackBar}
+              {video.library}
               <SnapshotFlash flashKey={flash} />
               <AlarmToasts
                 toasts={toast.toasts}

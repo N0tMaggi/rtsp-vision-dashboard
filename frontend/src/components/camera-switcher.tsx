@@ -1,4 +1,5 @@
 import { motion } from "motion/react"
+import { Film, Radio, X } from "lucide-react"
 import type { Camera } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -6,9 +7,11 @@ interface Props {
   cameras: Camera[]
   activeId: string | null
   onSelect: (id: string) => void
+  /** Close a video-analysis camera (file / URL source). */
+  onClose?: (id: string) => void
 }
 
-export function CameraSwitcher({ cameras, activeId, onSelect }: Props) {
+export function CameraSwitcher({ cameras, activeId, onSelect, onClose }: Props) {
   return (
     <nav
       aria-label="Select camera"
@@ -16,16 +19,16 @@ export function CameraSwitcher({ cameras, activeId, onSelect }: Props) {
     >
       {cameras.map((cam) => {
         const active = cam.id === activeId
+        const video = cam.source_kind === "file" || cam.source_kind === "url"
+        const Icon = cam.source_kind === "url" ? Radio : Film
         return (
-          <button
+          <motion.div
             key={cam.id}
-            type="button"
-            onClick={() => onSelect(cam.id)}
-            aria-current={active}
-            className={cn(
-              "relative shrink-0 rounded-full px-3.5 py-1.5 text-[13px] transition-colors duration-300 outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              active ? "text-primary-foreground" : "text-muted-foreground hover:text-foreground",
-            )}
+            layout="position"
+            initial={video ? { opacity: 0, scale: 0.85 } : false}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ type: "spring", stiffness: 420, damping: 34 }}
+            className="relative flex shrink-0 items-center rounded-full"
           >
             {active && (
               <motion.span
@@ -34,11 +37,38 @@ export function CameraSwitcher({ cameras, activeId, onSelect }: Props) {
                 transition={{ type: "spring", stiffness: 420, damping: 34 }}
               />
             )}
-            <span className="relative flex items-center gap-2">
-              {!cam.has_stream && <span className="size-1.5 rounded-full bg-current opacity-50" aria-label="not configured" />}
-              {cam.label}
-            </span>
-          </button>
+            <button
+              type="button"
+              onClick={() => onSelect(cam.id)}
+              aria-current={active}
+              title={video ? `${cam.label} (${cam.source_kind === "url" ? "stream URL" : "video"})` : undefined}
+              className={cn(
+                "relative rounded-full py-1.5 text-[13px] transition-colors duration-300 outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                video && onClose ? "pl-3 pr-1.5" : "px-3.5",
+                active ? "text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <span className="relative flex items-center gap-2">
+                {!cam.has_stream && <span className="size-1.5 rounded-full bg-current opacity-50" aria-label="not configured" />}
+                {video && <Icon className="size-3.5 shrink-0" aria-hidden />}
+                <span className={cn(video && "max-w-40 truncate")}>{cam.label}</span>
+              </span>
+            </button>
+            {video && onClose && (
+              <button
+                type="button"
+                onClick={() => onClose(cam.id)}
+                aria-label={`Close ${cam.label}`}
+                title="Close video"
+                className={cn(
+                  "relative mr-1 grid size-5 place-items-center rounded-full transition-colors duration-200",
+                  active ? "text-primary-foreground/70 hover:bg-primary-foreground/15 hover:text-primary-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                )}
+              >
+                <X className="size-3" />
+              </button>
+            )}
+          </motion.div>
         )
       })}
     </nav>

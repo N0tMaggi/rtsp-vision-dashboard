@@ -14,7 +14,7 @@ import time
 
 import cv2
 
-from . import config, deps, recognition, state
+from . import capture_env, config, deps, recognition, state
 from .alerts.clips import record_frame
 from .esp import draw_custom_esp
 from .ptz import pose as ptz_pose
@@ -30,7 +30,7 @@ def yolo_worker(camera_state):
     print(f"[YOLO Worker] Started for {camera_state.camera_id}.")
     last_frame_ref = None
 
-    while True:
+    while not camera_state.closed:
         if not camera_state.yolo_enabled or not state.YOLO_AVAILABLE:
             time.sleep(0.5)
             with camera_state.frame_lock:
@@ -54,6 +54,7 @@ def yolo_worker(camera_state):
             continue
 
         do_track = camera_state.esp_settings["tracking"]
+        epoch = camera_state.source_epoch   # video loop/seek cut while inferring -> drop the result
 
         try:
             started_at = time.time()
@@ -65,6 +66,8 @@ def yolo_worker(camera_state):
             else:
                 results = model(current_frame_ref, verbose=False, device=state.DEVICE, conf=current_conf)
             last_frame_ref = current_frame_ref
+            if epoch != camera_state.source_epoch:
+                continue
             # recognition: stable re-entry ids + hand-off to the face/plate worker
             results = recognition.after_inference(camera_state, current_frame_ref, results, frame_ts)
 
@@ -190,7 +193,8 @@ class VideoStream:
 
     def __init__(self, src, camera_state):
         self.camera_state = camera_state
-        self.stream = cv2.VideoCapture(src)
+        with capture_env.shared():   # never sees a URL source's temporary FFmpeg options
+            self.stream = cv2.VideoCapture(src)
         self.stream.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         self.lock = threading.Lock()
@@ -318,42 +322,60 @@ def _redact_url(url: str) -> str:
     return re.sub(r"(//[^:/@]*:)[^@/]*@", r"\1***@", url)
 
 
-def _acquire_feed(camera_state):
-    with _feeds_lock:
-        feed = _feeds.get(camera_state.camera_id)
-        if feed is not None and not feed.stream.stopped and feed.stream.grabbed:
-            feed.clients += 1
-            return feed
-        if feed is not None:
-            feed.stream.release()
-            _feeds.pop(camera_state.camera_id, None)
+_connect_locks: dict[str, threading.Lock] = {}
 
-        failures, retry_after = _connect_failures.get(camera_state.camera_id, (0, 0.0))
-        wait = retry_after - time.monotonic()
-        if wait > 0:
-            camera_state.stream_error = (
-                f"Camera refused the connection. Next attempt in {wait:.0f} s - "
-                "check user/password of the camera account in .env."
-            )
-            return None
+
+def _connect_lock(camera_id: str) -> threading.Lock:
+    with _feeds_lock:
+        return _connect_locks.setdefault(camera_id, threading.Lock())
+
+
+def _acquire_feed(camera_state):
+    # One connect per camera at a time; the slow open itself runs outside
+    # _feeds_lock so an unreachable camera never blocks the other cameras
+    # (or a video source) from starting, closing or being released.
+    with _connect_lock(camera_state.camera_id):
+        with _feeds_lock:
+            feed = _feeds.get(camera_state.camera_id)
+            if feed is not None and not feed.stream.stopped and feed.stream.grabbed:
+                feed.clients += 1
+                return feed
+            if feed is not None:
+                feed.stream.release()
+                _feeds.pop(camera_state.camera_id, None)
+
+            source = camera_state.source     # video file / URL source (securitycam/sources.py) or None
+            is_file = source is not None and camera_state.source_kind == "file"
+            failures, retry_after = _connect_failures.get(camera_state.camera_id, (0, 0.0))
+            wait = retry_after - time.monotonic()
+            if wait > 0 and not is_file:
+                camera_state.stream_error = (
+                    f"Camera refused the connection. Next attempt in {wait:.0f} s - "
+                    "check user/password of the camera account in .env."
+                )
+                return None
 
         print(f"[Camera] Connecting to {camera_state.camera_id}: {_redact_url(camera_state.rtsp_url)}")
         with camera_state.frame_lock:
             camera_state.latest_frame = None
-        stream = VideoStream(camera_state.rtsp_url, camera_state)
-        if not stream.grabbed:
+        stream = source.open_stream(camera_state) if source is not None else VideoStream(camera_state.rtsp_url, camera_state)
+        if not stream.grabbed or camera_state.closed:
             stream.release()
-            failures += 1
-            delay = min(_CONNECT_BACKOFF_MAX_S, _CONNECT_BACKOFF_MIN_S * 2 ** (failures - 1))
-            _connect_failures[camera_state.camera_id] = (failures, time.monotonic() + delay)
+            if is_file or camera_state.closed:
+                return None
+            with _feeds_lock:
+                failures = _connect_failures.get(camera_state.camera_id, (0, 0.0))[0] + 1
+                delay = min(_CONNECT_BACKOFF_MAX_S, _CONNECT_BACKOFF_MIN_S * 2 ** (failures - 1))
+                _connect_failures[camera_state.camera_id] = (failures, time.monotonic() + delay)
             print(f"[Camera] Connect to {camera_state.camera_id} failed ({failures}x), retrying in {delay:.0f} s.")
             return None
-        _connect_failures.pop(camera_state.camera_id, None)
         stream.start()
-        feed = CameraFeed(camera_state, stream)
-        feed.clients = 1
-        _feeds[camera_state.camera_id] = feed
-        return feed
+        with _feeds_lock:
+            _connect_failures.pop(camera_state.camera_id, None)
+            feed = CameraFeed(camera_state, stream)
+            feed.clients = 1
+            _feeds[camera_state.camera_id] = feed
+            return feed
 
 
 def _release_feed(camera_state, feed):

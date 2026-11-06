@@ -23,6 +23,7 @@ SecurityCam is a modular RTSP camera dashboard built with Flask, OpenCV, and YOL
 8. [Configuration](#configuration)
 9. [API Reference](#api-reference)
 10. [ESP Features and Controls](#esp-features-and-controls)
+    - [Video Analysis](#video-analysis)
 11. [Model Management](#model-management)
 12. [Performance Tuning](#performance-tuning)
 13. [Operational Notes](#operational-notes)
@@ -602,6 +603,109 @@ New ESP setting keys: `alarms` (evaluate rules), `tripwires` (draw tripwires), `
 | `GET` | `/api/events/<camera>/<event_id>/frames/<n>.jpg` | JPEG-sequence clip frames |
 | `POST` | `/api/cameras/<id>/snapshot` | Save + return the current rendered frame |
 | `POST` | `/api/notify/test` | Send a test notification (`{"camera": "<id>"}`) |
+
+## Video Analysis
+
+Test detection on recorded footage: the **Video Analysis** entry next to the camera pills opens a
+library where you upload clips (drag & drop or file picker, with live progress and cancel). Opening
+a clip turns it into a **virtual camera** (`video-<id>`) that plays in the normal stage, so every
+feature works on it unchanged: YOLO detection and tracking, ESP overlay, lock/follow, zones,
+tripwires and alarms/events, recognition (faces, plates), heatmap, snapshots and the grid view.
+
+- **Real-time playback**: frames are decoded at the clip's native FPS (wall-clock paced; late
+  frames are dropped instead of playing back faster than real time), looping at the end by default.
+- **Playback bar** (bottom of the stage): play/pause, frame step, scrubber with hover time,
+  current/total time, speed 0.25x-4x, loop, restart. Pausing keeps the frame on screen and the
+  detector/ESP keep running on it, so you can inspect a moment.
+- **Cuts**: when a clip loops or you seek more than a second, per-track state (tracker, re-entry ids,
+  tracers, motion model, locked target) is reset so ids and tracers don't jump across the cut.
+- **Settings**: a video camera starts with the default ESP settings and AI on, or - with *Copy
+  settings from current camera* - with the settings and model of the camera you were watching.
+  Video cameras are ephemeral: they are not written to `state.json` and disappear on restart
+  (the clips stay in the library).
+- **Speed** is wall-clock based: at 2x, measured speeds/dwell times in the overlay are 2x as well.
+
+Keyboard (only while a video is on stage, never while typing):
+
+| Key | Action |
+|---|---|
+| `Space` / `K` | Play / pause |
+| `J` / `L` | Back / forward 10 s |
+| `,` / `.` | Previous / next frame (pauses) |
+| `[` / `]` | Slower / faster |
+
+Clips live in `data/videos/<id>/` (`video.<ext>`, `meta.json`, `thumb.jpg`). Uploads are streamed to
+disk in chunks, limited in size, and accepted only if OpenCV can open them and read a frame
+(MP4, MKV, AVI, MOV, WebM). The original file name is kept only as display text (sanitized); paths use
+random ids. Nothing from an upload is executed, but the file *is* decoded by FFmpeg - only upload
+media you trust as much as any other video you would open. When the library exceeds its total size,
+the oldest clips that are not currently open are deleted.
+
+### Stream URLs (optional, off by default)
+
+With `SECURITYCAM_VIDEO_URLS=true` the library also offers *Open stream URL*: a network source
+played directly as a live virtual camera (no seeking) - direct HTTP(S) video files, MJPEG, HLS
+(`.m3u8`) and RTSP. Only `http`, `https` and `rtsp` are accepted. Uploaded files work regardless
+of this switch; while it is off the UI only shows a one-line hint how to enable it.
+
+The **server** fetches the URL, which makes this an SSRF surface. Mitigations:
+
+- The host is resolved and **every** resolved address is checked (literal tricks such as `127.1`,
+  `0x7f000001` or `::ffff:127.0.0.1` are judged by what the resolver returns). Loopback, link-local,
+  cloud metadata (`169.254.169.254`, `fd00:ec2::254`), unspecified, multicast and reserved addresses
+  are always refused; IPv4 embedded in IPv6 (mapped, 6to4, Teredo, NAT64) is checked too.
+- Private networks (RFC 1918, ULA, CGNAT, ...) are refused unless you opt in with
+  `SECURITYCAM_VIDEO_URL_ALLOW_PRIVATE=true` or list ranges in `SECURITYCAM_VIDEO_URL_ALLOW_CIDRS`.
+- **HTTP(S) redirects are resolved by SecurityCam itself** (urllib, automatic redirects refused,
+  no proxies): at most 5 hops, every hop's destination checked; FFmpeg only gets the final URL.
+- **HLS**: the playlist is fetched by SecurityCam (same hop checks) and every variant, segment, key,
+  map and rendition URI is resolved and its host checked; variant playlists are fetched and checked
+  the same way. One failing host rejects the source.
+- All of this is repeated each time the reader (re)connects, and FFmpeg is restricted to the network
+  protocols `http,https,tcp,tls,rtsp,rtp,udp,crypto` (no `file:`, `pipe:`, `concat:`, ...). The option is
+  set through `OPENCV_FFMPEG_CAPTURE_OPTIONS` only for the URL open (under a lock, restored afterwards);
+  camera RTSP opens keep your own value of that variable.
+
+Residual risks you accept by enabling URL sources:
+
+- **DNS rebinding**: FFmpeg resolves the host again itself; a hostile DNS server can answer
+  differently between SecurityCam's check and FFmpeg's connect.
+- **FFmpeg-internal requests SecurityCam cannot see**: for a live HLS stream FFmpeg refreshes the
+  media playlist itself, so segments added later are not checked; a server may also answer FFmpeg's
+  own request with a redirect (OpenCV/FFmpeg offer no option to disable redirects).
+- **RTSP** sources only get the destination check; RTSP-level redirects are followed by FFmpeg.
+- Credentials in a URL (`rtsp://user:pass@host/...`) are kept in memory only and redacted in the
+  API and logs.
+
+Only enable URL sources on a server that untrusted people cannot reach.
+
+### Video settings (.env)
+
+| Variable | Default | Description |
+|---|---:|---|
+| `SECURITYCAM_VIDEO_MAX_MB` | `1024` | Max size of one upload (MB) |
+| `SECURITYCAM_VIDEO_MAX_TOTAL_MB` | `10240` | Max total library size; oldest unopened clips are pruned |
+| `SECURITYCAM_VIDEO_URLS` | `false` | Allow stream URL sources (then public addresses only, unless allowed below) |
+| `SECURITYCAM_VIDEO_URL_ALLOW_PRIVATE` | `false` | Also allow private / LAN addresses for URL sources |
+| `SECURITYCAM_VIDEO_URL_ALLOW_CIDRS` | empty | Comma-separated ranges allowed in addition, e.g. `192.168.1.0/24` |
+
+### Video API
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/videos` | Library, usage, limits, open sources |
+| `POST` | `/api/videos` | Upload (`multipart/form-data`, field `file`) |
+| `GET` / `PATCH` / `DELETE` | `/api/videos/<id>` | Metadata / rename (`{"name"}`) / delete (closes it first) |
+| `GET` | `/api/videos/<id>/thumb.jpg` | Thumbnail |
+| `POST` | `/api/videos/<id>/open` | Open as virtual camera (`{"copy_settings_from": "<camera>", "loop": true}`) -> `camera_id` |
+| `POST` | `/api/videos/<id>/close` | Close its virtual camera |
+| `GET` | `/api/sources` | Open video / URL sources |
+| `POST` | `/api/sources/url` | Open a stream URL (`{"url", "label", "copy_settings_from"}`) |
+| `POST` | `/api/sources/<camera_id>/close` | Close a virtual camera |
+| `GET` / `POST` | `/api/sources/<camera_id>/playback` | State / control: `action` = play, pause, toggle, restart, seek (`seconds`, `fraction` or `delta`), step (`frames`); plus `speed`, `loop` |
+
+`/api/cameras` lists virtual cameras with `source_kind` `"file"` or `"url"` (`"rtsp"` for configured cameras).
+All mutating routes except the upload take JSON and pass the app-wide cross-site guard.
 
 ## Model Management
 
