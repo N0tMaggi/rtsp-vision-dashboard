@@ -6,6 +6,7 @@ import { ClipPlayer } from "@/components/clip-player"
 import { EventsButton, EventsDrawer } from "@/components/events-drawer"
 import { CameraSwitcher } from "@/components/camera-switcher"
 import { EspMenu } from "@/components/esp-menu"
+import { PlateLog, PlateLogButton } from "@/components/plate-log"
 import { useOperation } from "@/components/operation"
 import { Stage } from "@/components/stage"
 import type { Tool } from "@/components/stage-toolbar"
@@ -14,10 +15,12 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { useCameraStatus } from "@/hooks/use-camera-status"
 import { useEspSettings } from "@/hooks/use-esp-settings"
 import { useEvents } from "@/hooks/use-events"
+import { usePlateLog } from "@/hooks/use-plate-log"
 import { useTargets } from "@/hooks/use-targets"
 import { useWorkspace } from "@/hooks/use-workspace"
 import { alertsApi, type AlarmEvent } from "@/lib/alerts"
 import { api } from "@/lib/api"
+import { OPEN_PLATE_LOG_EVENT, plateLogApi, type PlateLogEntry } from "@/lib/platelog"
 import type { Camera, NBox } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -38,6 +41,9 @@ export default function App() {
   const [flash, setFlash] = useState(0)
   const toast = useToasts()
   const { push: pushToast } = toast
+  // license plate log (P)
+  const [plateLogOpen, setPlateLogOpen] = useState(false)
+  const plateLog = usePlateLog(plateLogOpen)
   const ev = useEvents((fresh) => fresh.slice(0, 3).reverse().forEach((e) => toast.push({ key: `${e.camera}/${e.id}`, type: "alarm", event: e })))
 
   useEffect(() => {
@@ -95,6 +101,35 @@ export default function App() {
   useEffect(() => {
     if (eventsOpen) markSeen()
   }, [eventsOpen, ev.events, markSeen])
+
+  // Plate log and events share the left side: opening one closes the other.
+  const { markSeen: markPlatesSeen } = plateLog
+  useEffect(() => {
+    if (plateLogOpen) markPlatesSeen()
+  }, [plateLogOpen, plateLog.unread, markPlatesSeen])
+  useEffect(() => {
+    if (eventsOpen) setPlateLogOpen(false)
+  }, [eventsOpen])
+  useEffect(() => {
+    if (plateLogOpen) setEventsOpen(false)
+  }, [plateLogOpen])
+
+  // P toggles the plate log; the Recognition panel opens it through a window event.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement
+      if (t.closest("input, textarea, select, [role=combobox], [role=listbox]") || e.ctrlKey || e.metaKey || e.altKey) return
+      if (e.key === "p" || e.key === "P") setPlateLogOpen((o) => !o)
+      else if (e.key === "Escape") setPlateLogOpen(false)
+    }
+    const onOpen = () => setPlateLogOpen(true)
+    window.addEventListener("keydown", onKey)
+    window.addEventListener(OPEN_PLATE_LOG_EVENT, onOpen)
+    return () => {
+      window.removeEventListener("keydown", onKey)
+      window.removeEventListener(OPEN_PLATE_LOG_EVENT, onOpen)
+    }
+  }, [])
 
   const snapshot = useCallback(async () => {
     if (!activeId) return
@@ -167,6 +202,19 @@ export default function App() {
   const rightInset = menuOpen && desktop ? 420 : undefined
   const ops = useOperation({ cameras, activeId, open, refresh, menuOpen, rightInset: rightInset ?? 24 })
 
+  // "Show Live": lock the logged vehicle on its camera, switch there and follow it.
+  const { openSingle } = ops
+  const showLive = useCallback(
+    async (entry: PlateLogEntry) => {
+      const r = await plateLogApi.showLive(entry.id)
+      openSingle(r.camera)
+      setLockOverride({ id: r.target_id, at: Date.now() })
+      setFollow(true)
+      setPlateLogOpen(false)
+    },
+    [openSingle],
+  )
+
   return (
     <MotionConfig reducedMotion="user">
       <TooltipProvider delayDuration={300}>
@@ -224,6 +272,7 @@ export default function App() {
                 >
                   <CameraIcon className="size-4" />
                 </button>
+                <PlateLogButton open={plateLogOpen} unread={plateLogOpen ? 0 : plateLog.unread} onClick={() => setPlateLogOpen((o) => !o)} />
                 <EventsButton
                   open={eventsOpen}
                   unread={eventsOpen ? 0 : ev.unread}
@@ -274,6 +323,14 @@ export default function App() {
                 seenTs={ev.seen}
                 onPlay={setPlaying}
                 onDelete={(e) => void ev.remove(e)}
+              />
+
+              <PlateLog
+                open={plateLogOpen}
+                onClose={() => setPlateLogOpen(false)}
+                cameras={cameras}
+                log={plateLog}
+                onShowLive={showLive}
               />
 
               <motion.footer

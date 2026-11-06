@@ -39,7 +39,7 @@ export interface AlertsConfig {
   clip: { pre_s: number; post_s: number }
 }
 
-export type EventKind = "zone" | "tripwire" | "abandoned"
+export type EventKind = "zone" | "tripwire" | "abandoned" | "plate"
 
 export interface AlarmEvent {
   id: string
@@ -133,4 +133,5 @@ export const KIND_LABEL: Record<EventKind, string> = {
   zone: "Zone",
   tripwire: "Tripwire",
   abandoned: "Abandoned",
+  plate: "Watchlist Plate",
 }
