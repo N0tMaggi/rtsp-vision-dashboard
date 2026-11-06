@@ -11,6 +11,7 @@ import numpy as np
 
 from . import motion
 from . import renderers as R
+from . import visuals
 from .colors import ANTHRACITE, DetectionColors, center_dot_color, mix, resolve_detection_colors
 from .detections import Detection, extract_detections
 from .sensors import update_faces, update_hands
@@ -104,6 +105,7 @@ def draw_custom_esp(camera_state, frame, results, frame_ts: Optional[float] = No
         return frame
 
     s = EspSettings.from_mapping(camera_state.esp_settings)
+    vs = visuals.VisualSettings.from_mapping(camera_state.esp_settings)
     h, w = frame.shape[:2]
     t_frame = time.perf_counter() if frame_ts is None else float(frame_ts)
     now = time.time()  # wall clock, only for the rgb-mode color cycle
@@ -119,6 +121,7 @@ def draw_custom_esp(camera_state, frame, results, frame_ts: Optional[float] = No
         detections = _update_tracks(camera_state, s, results, t_frame, results_ts, float(coord_scale))
         mst = motion.get_state(camera_state)
         mst.frame_w, mst.frame_h = w, h
+        vstats = visuals.update_state(camera_state, mst, t_frame)
         locked = getattr(camera_state, "esp_locked", None)
         if locked is not None and locked not in mst.tracks:
             camera_state.esp_locked = locked = None   # locked track was pruned
@@ -129,6 +132,7 @@ def draw_custom_esp(camera_state, frame, results, frame_ts: Optional[float] = No
         R.anonymize_faces(frame, faces, s.face_blur_mode, s.face_blur_strength)
     if s.thermal:
         R.apply_thermal(frame, gray)
+    visuals.frame_effects(frame, camera_state, vs, t_frame, frame_idx, skip_night=s.thermal)
     inset = R.make_face_inset(frame, faces, s.face_zoom_scale, st.margin) if s.face_zoom else None
     if s.center_dot:
         R.draw_center_dot(frame, center_dot_color(s, now), st)
@@ -158,6 +162,7 @@ def draw_custom_esp(camera_state, frame, results, frame_ts: Optional[float] = No
             resolve_detection_colors(s, i, d.obj_id, d.cls_id, i == closest, now)
             for i, d in enumerate(detections)
         ]
+        palettes = visuals.loiter_palettes(palettes, detections, vs, vstats, t_frame)
         lock_idx = None
         if locked is not None:
             lock_idx = next((i for i, d in enumerate(detections) if d.track_key == locked), None)
@@ -215,6 +220,7 @@ def draw_custom_esp(camera_state, frame, results, frame_ts: Optional[float] = No
                 # cached label image is reused
                 accent = pal.text if s.rgb_mode else pal.box
                 runs = R.build_label(det, s, pal.text)
+                runs = visuals.loiter_runs(runs, det, vs, vstats, t_frame, pal.text)
                 if i == lock_idx:
                     runs = [("LOCK", True, s.color_primary)] + ([("  ", False, pal.text)] if runs else []) + runs
                     accent = s.color_primary

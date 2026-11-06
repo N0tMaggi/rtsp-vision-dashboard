@@ -9,7 +9,7 @@ from __future__ import annotations
 import time
 from typing import Any, Optional
 
-from .esp import motion
+from .esp import motion, trackstats
 from .esp.pipeline import _esp_lock
 from .validation import ZONE_DEFAULT_COLOR, ZoneError, parse_zone_patch
 
@@ -65,6 +65,7 @@ def _visible_targets_locked(camera_state, t: float) -> list[dict[str, Any]]:
             "label": det.cls_name,
             "conf": round(float(tr.conf), 3),
             "box": [round(x1, 4), round(y1, 4), round(x2, 4), round(y2, 4)],
+            **trackstats.target_fields(camera_state, key, tr, t),
         })
     return out
 

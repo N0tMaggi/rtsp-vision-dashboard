@@ -164,6 +164,14 @@ DEFAULT_ESP_SETTINGS = {
     "color_face": "#5ad1ff",
     "color_hand": "#7ee0a1",
     "color_text": "#f4f4f2",
+    # visuals: motion heatmap, loitering ramp, night vision
+    "heatmap": False,
+    "heatmap_window": "1h",
+    "heatmap_opacity": 0.55,
+    "loiter": False,
+    "loiter_seconds": 120,
+    "night_vision": "off",
+    "night_vision_scanlines": False,
 }
 
 
