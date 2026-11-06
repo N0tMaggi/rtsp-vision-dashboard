@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
-import { Box, Palette, Route, ScanFace, SquareDashed, Trash2, X } from "lucide-react"
+import { Box, Palette, Radar, Route, ScanFace, SquareDashed, Trash2, X } from "lucide-react"
+import { OverlaysPanel } from "@/components/overlays-panel"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
@@ -27,6 +28,7 @@ const CATEGORIES = [
   { id: "face", label: "Faces & Hands", icon: ScanFace },
   { id: "track", label: "Tracking", icon: Route },
   { id: "zones", label: "Zones", icon: SquareDashed },
+  { id: "overlays", label: "Overlays", icon: Radar },
   { id: "style", label: "Colors", icon: Palette },
 ] as const
 type CategoryId = (typeof CATEGORIES)[number]["id"]
@@ -162,7 +164,7 @@ export function EspMenu({ open, onClose, status, models, settings, onUpdate, onT
                   className="p-4"
                 >
                   <h2 className="mb-3 text-base font-medium">{CATEGORIES.find((c) => c.id === category)?.label}</h2>
-                  <CategoryBody category={category} settings={settings} onUpdate={onUpdate} zones={zones} />
+                  <CategoryBody category={category} settings={settings} onUpdate={onUpdate} zones={zones} cameraId={status?.camera.id} />
                 </motion.div>
               </AnimatePresence>
             </div>
@@ -182,11 +184,13 @@ function CategoryBody({
   settings,
   onUpdate,
   zones,
+  cameraId,
 }: {
   category: CategoryId
   settings: EspSettings
   onUpdate: Update
   zones: ZoneActions
+  cameraId?: string
 }) {
   const sliders = (keys: string[]) => SLIDERS.filter((s) => keys.includes(s.key))
   switch (category) {
@@ -241,6 +245,8 @@ function CategoryBody({
           </p>
         </>
       )
+    case "overlays":
+      return <OverlaysPanel cameraId={cameraId} settings={settings} onUpdate={onUpdate} />
     case "zones":
       return <ZonesPanel settings={settings} onUpdate={onUpdate} zones={zones} />
     case "style":

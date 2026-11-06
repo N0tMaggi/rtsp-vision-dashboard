@@ -8,6 +8,7 @@ from flask import Flask, Response, abort, jsonify, request, send_from_directory
 from . import config, deps, state, targets
 from .streaming import gen_frames
 from .validation import ZoneError, parse_lock_id
+from .visuals_api import visuals_bp
 
 
 def _camera_payload(camera_state: state.CameraRuntime) -> dict:
@@ -202,6 +203,7 @@ def create_app() -> Flask:
             return jsonify({"ok": False, "error": "unknown_zone"}), 404
         return jsonify({"ok": True})
 
+    app.register_blueprint(visuals_bp)
     return app
 
 
