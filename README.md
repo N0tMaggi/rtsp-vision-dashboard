@@ -315,7 +315,7 @@ If `SECURITYCAM_CAMERAS` is set, the legacy single-camera variables are used onl
 
 | Variable | Required | Default | Description |
 |---|---|---:|---|
-| `SECURITYCAM_YOLO_MODEL` | no | `yolov8n.pt` | Startup model |
+| `SECURITYCAM_YOLO_MODEL` | no | `yolo26s.pt` | Startup model (`yolo26m.pt` recommended on NVIDIA GPUs, `yolo26n.pt` on CPU) |
 | `SECURITYCAM_YOLO_IMG_SIZE` | no | `640` | Inference image size |
 | `SECURITYCAM_DISPLAY_SCALE` | no | `1.0` | Display downscale factor |
 | `SECURITYCAM_JPEG_QUALITY` | no | `85` | Default MJPEG quality (per camera adjustable in the ESP menu) |
@@ -709,12 +709,18 @@ All mutating routes except the upload take JSON and pass the app-wide cross-site
 
 ## Model Management
 
-Available startup/runtime model names include:
-- `yolov8n.pt`, `yolov8n-pose.pt`
-- `yolov8s.pt`, `yolov8s-pose.pt`
-- `yolov8m.pt`, `yolov8m-pose.pt`
-- `yolov8l.pt`, `yolov8l-pose.pt`
-- `yolov8x.pt`, `yolov8x-pose.pt`
+Pick a model in the ESP menu header (Model picker: family, task, size). Available families:
+
+| Family | Detect | Pose | Notes |
+|---|---|---|---|
+| **YOLO26** (recommended) | `yolo26n/s/m/l/x.pt` | `yolo26n/s/m/l/x-pose.pt` | Newest Ultralytics generation, NMS-free, better on small/far objects |
+| YOLO11 | `yolo11n/s/m.pt` | `yolo11n/s/m-pose.pt` | Previous generation |
+| YOLOv8 | `yolov8n/s/m/l/x.pt` | `yolov8n/s/m/l/x-pose.pt` | Classic, widely used |
+| RT-DETR | `rtdetr-l.pt` | – | Transformer detector, slower |
+
+Recommendations: `yolo26m.pt` on an NVIDIA GPU (on an RTX 5080 about 16 ms per 1080p frame vs. 13 ms for `yolov8n.pt`), `yolo26n.pt` on CPU-only machines.
+**Pose models only detect people** (with skeleton keypoints) - use a Detect model for cars, plates and other objects.
+Weights download into `models/` on first use; "Build for GPU" turns any of them into a TensorRT engine.
 
 Model loading behavior:
 - if local model file exists in `models/`, it is used

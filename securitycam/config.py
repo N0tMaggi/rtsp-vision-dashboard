@@ -97,6 +97,17 @@ TORCH_CUDA_INDEX_URL = os.getenv(
 YOLO_IMG_SIZE = _env_int("SECURITYCAM_YOLO_IMG_SIZE", 640, minimum=320, maximum=1280)
 
 AVAILABLE_MODELS = (
+    # YOLO26: newest Ultralytics generation, NMS-free end-to-end, better on small/far objects.
+    "yolo26n.pt",
+    "yolo26n-pose.pt",
+    "yolo26s.pt",
+    "yolo26s-pose.pt",
+    "yolo26m.pt",
+    "yolo26m-pose.pt",
+    "yolo26l.pt",
+    "yolo26l-pose.pt",
+    "yolo26x.pt",
+    "yolo26x-pose.pt",
     "yolov8n.pt",
     "yolov8n-pose.pt",
     "yolov8s.pt",
@@ -117,9 +128,9 @@ AVAILABLE_MODELS = (
     "rtdetr-l.pt",
 )
 
-YOLO_MODEL_NAME = os.getenv("SECURITYCAM_YOLO_MODEL", "yolov8n.pt").strip() or "yolov8n.pt"
+YOLO_MODEL_NAME = os.getenv("SECURITYCAM_YOLO_MODEL", "yolo26s.pt").strip() or "yolo26s.pt"
 if YOLO_MODEL_NAME not in AVAILABLE_MODELS:
-    YOLO_MODEL_NAME = "yolov8n.pt"
+    YOLO_MODEL_NAME = "yolo26s.pt"
 
 
 DEFAULT_ESP_SETTINGS = {

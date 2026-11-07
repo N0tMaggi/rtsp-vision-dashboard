@@ -4,8 +4,7 @@ import { Box, Fingerprint, Palette, Radar, Route, ScanFace, Siren, SquareDashed,
 import { AlertsPanel } from "@/components/alerts-panel"
 import { OverlaysPanel } from "@/components/overlays-panel"
 import { RecognitionPanel } from "@/components/recognition-panel"
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { groupModels } from "@/lib/recognition"
+import { ModelPicker } from "@/components/model-picker"
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -119,24 +118,13 @@ export function EspMenu({ open, onClose, status, models, settings, onUpdate, onT
                 </span>
               </label>
             </div>
-            <Select value={status?.yolo_model ?? undefined} onValueChange={onModelChange} disabled={!aiAvailable || busy}>
-              <SelectTrigger size="sm" className="w-[150px] text-xs" aria-label="Model">
-                <SelectValue placeholder="Model" />
-              </SelectTrigger>
-              <SelectContent>
-                {groupModels(models).map((g) => (
-                  <SelectGroup key={g.family}>
-                    <SelectLabel className="text-[11px] text-primary/80">{g.family}</SelectLabel>
-                    {g.options.map((o) => (
-                      <SelectItem key={o.name} value={o.name} className="text-xs">
-                        {o.short}
-                        {o.pose && <span className="rounded bg-primary/15 px-1 text-[10px] text-primary">POSE</span>}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                ))}
-              </SelectContent>
-            </Select>
+            <ModelPicker
+              models={models}
+              value={status?.yolo_model ?? null}
+              onChange={onModelChange}
+              disabled={!aiAvailable || busy}
+              cuda={status?.cuda_available ?? false}
+            />
             <button
               type="button"
               onClick={onClose}

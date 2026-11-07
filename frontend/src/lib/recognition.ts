@@ -72,7 +72,7 @@ export interface EngineJob {
 
 export interface ModelInfo {
   name: string
-  family: "YOLOv8" | "YOLO11" | "RT-DETR" | "Other"
+  family: "YOLO26" | "YOLOv8" | "YOLO11" | "RT-DETR" | "Other"
   task: "detect" | "pose"
   size: string
   label: string
@@ -177,10 +177,11 @@ export interface ModelGroup {
   options: ModelOption[]
 }
 
-const FAMILY_ORDER = ["YOLOv8", "YOLO11", "RT-DETR", "Other"]
+const FAMILY_ORDER = ["YOLO26", "YOLO11", "YOLOv8", "RT-DETR", "Other"]
 
 export function modelFamily(name: string): string {
   if (name.startsWith("rtdetr")) return "RT-DETR"
+  if (name.startsWith("yolo26")) return "YOLO26"
   if (name.startsWith("yolo11")) return "YOLO11"
   if (name.startsWith("yolov8")) return "YOLOv8"
   return "Other"

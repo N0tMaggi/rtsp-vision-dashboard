@@ -27,6 +27,8 @@ def model_info(name: str) -> Dict[str, Any]:
     stem = Path(name).stem
     if stem.startswith("rtdetr"):
         family = "RT-DETR"
+    elif stem.startswith("yolo26"):
+        family = "YOLO26"
     elif stem.startswith("yolo11"):
         family = "YOLO11"
     elif stem.startswith("yolov8"):
