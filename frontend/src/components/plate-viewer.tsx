@@ -18,7 +18,8 @@ import { plateLogApi, relativeTime, type LiveTarget, type PlateLogEntry } from "
 import type { NBox } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { formatDay, formatTime } from "./clip-player"
-import { PlateBadge, WatchFlag } from "./plate-badge"
+import { ManualBadge, PlateBadge, WatchFlag } from "./plate-badge"
+import { PlateReread } from "./plate-reread"
 
 const spring = { type: "spring", stiffness: 380, damping: 34 } as const
 const LIVE_POLL_MS = 1500
@@ -244,6 +245,7 @@ function ViewerCard({
         >
           {copied ? <Check className="size-4 text-primary" /> : <Copy className="size-4" />}
         </button>
+        {entry.source === "manual" && <ManualBadge edited={entry.edited} />}
         {entry.watch && <WatchFlag note={entry.watch.note} />}
         <div className="min-w-0 flex-1 text-xs leading-relaxed text-muted-foreground">
           <p className="truncate text-sm text-foreground">
@@ -359,6 +361,7 @@ function ViewerCard({
             <Stat label="Reads" value={String(entry.reads)} />
             <Stat label="Seen for" value={duration(entry.last_seen - entry.first_seen)} />
           </dl>
+          <PlateReread entry={entry} />
 
           <div className="mt-auto flex flex-col gap-2">
             <AnimatePresence>

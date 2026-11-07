@@ -248,5 +248,7 @@ export function useVideoAnalysis({ cameras, activeId, open, reloadCameras, right
     /** Extra space the stage keeps free at the bottom for the playback bar. */
     bottomInset: showBar ? 116 : undefined,
     closeCamera,
+    /** Play state + toggle for the stage's right-click menu (video files only). */
+    stageVideo: isFile && single ? { playing: playback?.playing ?? null, toggle: () => void send({ action: "toggle" }) } : null,
   }
 }

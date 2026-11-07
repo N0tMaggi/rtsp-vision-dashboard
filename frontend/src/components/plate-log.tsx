@@ -12,7 +12,7 @@ import {
 import type { Camera } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { formatDay, formatTime } from "./clip-player"
-import { PlateBadge, PlateIcon, WatchFlag } from "./plate-badge"
+import { ManualBadge, PlateBadge, PlateIcon, WatchFlag } from "./plate-badge"
 import { PlateViewer } from "./plate-viewer"
 
 const ease = [0.22, 1, 0.36, 1] as const
@@ -464,6 +464,7 @@ function ReadRow({
           </span>
           <span className="mt-1.5 flex items-center gap-2">
             <PlateBadge plate={entry.plate} size="sm" />
+            {entry.source === "manual" && <ManualBadge edited={entry.edited} />}
             {entry.watch && <WatchFlag note={entry.watch.note} />}
             <span className="ml-auto text-[11px] tabular-nums text-muted-foreground" title={new Date(entry.last_seen * 1000).toLocaleString("en-GB")}>
               {relativeTime(entry.last_seen)}

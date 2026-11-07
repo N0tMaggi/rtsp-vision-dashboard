@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "motion/react"
 import { Camera, Check, Copy, Cpu, ImageUp, Loader2, ScanFace, Trash2, X, Zap } from "lucide-react"
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
+import { UnknownFaces } from "@/components/unknown-faces"
 import { useRecognition } from "@/hooks/use-recognition"
 import { openPlateLog } from "@/lib/platelog"
 import {
@@ -142,6 +143,7 @@ export function RecognitionPanel({ cameraId, currentModel, settings, onUpdate }:
       </div>
 
       <PeopleSection cameraId={cameraId} people={rec.people} setPeople={rec.setPeople} reload={rec.reloadPeople} />
+      <UnknownFaces settings={settings} onUpdate={onUpdate} people={rec.people} onPeopleChanged={rec.reloadPeople} />
 
       {(platesOn || rec.plates.length > 0) && (
         <PlatesSection

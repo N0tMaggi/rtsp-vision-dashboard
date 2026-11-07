@@ -71,6 +71,41 @@ export interface Target {
   /** Current speed in m/s (and normalized frame units / s). */
   speed?: number
   speed_n?: number
+  /** Tags of the target's identity (person / face id / plate / track), newer backends. */
+  tags?: TargetTag[]
+  /** What recognition knows about the target. */
+  identity?: TargetIdentity
+  /** Hidden by the camera's solo / hide view filter (visual only). */
+  hidden?: boolean
+}
+
+export interface TargetTag {
+  label: string
+  color: string
+}
+
+export interface TargetIdentity {
+  name?: string
+  person_id?: string
+  /** Automatic unknown face id ("Face #n"). */
+  face_id?: number
+  plate?: string
+  /** A face was attributed to this target in the last few seconds. */
+  face?: boolean
+}
+
+export interface ViewFilterEntry {
+  id: number
+  epoch: number
+  key: string | null
+  label: string
+  name: string | null
+}
+
+/** Per-camera solo / hidden targets (visual only: alarms keep counting everything). */
+export interface ViewFilter {
+  solo: ViewFilterEntry | null
+  hidden: ViewFilterEntry[]
 }
 
 /** Camera pose of a world-anchored PTZ camera (degrees; FOV is the effective one at this zoom). */
@@ -90,6 +125,8 @@ export interface TargetsResponse {
   targets: Target[]
   /** Present while overlays are world-anchored (PTZ). */
   pose?: CameraPose
+  /** Solo / hidden targets of this camera (newer backends). */
+  view?: ViewFilter
 }
 
 export interface Zone {

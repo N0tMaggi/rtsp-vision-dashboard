@@ -4,6 +4,7 @@ import { useViewTransform } from "@/hooks/use-view-transform"
 import { api } from "@/lib/api"
 import type { Camera, NBox, Target, TargetsResponse } from "@/lib/types"
 import { cn } from "@/lib/utils"
+import { useStageContext, type Notice } from "./stage-context"
 import { StageToolbar, type Tool } from "./stage-toolbar"
 import { StageVisuals } from "./stage-visuals"
 
@@ -29,6 +30,10 @@ interface Props {
   onAimAt?: (u: number, v: number, clientX: number, clientY: number) => void
   /** Space kept free at the bottom (e.g. for the video playback bar), in px. */
   bottomInset?: number
+  /** Context menu extras: snapshot, video play state, toasts. */
+  onSnapshot?: () => void
+  video?: { playing: boolean | null; toggle: () => void } | null
+  notify?: (n: Notice) => void
 }
 
 // Free area between header (~72px) and telemetry bar (~44px); the video is fitted inside.
@@ -36,6 +41,7 @@ const INSET = { top: 80, bottom: 64, left: 24, right: 24 }
 
 const ease = [0.22, 1, 0.36, 1] as const
 const DRAG_THRESHOLD_PX = 4
+const LONG_PRESS_MS = 550
 
 function containRect(cw: number, ch: number, vw: number, vh: number, right: number, bottom = INSET.bottom) {
   const aw = Math.max(0, cw - INSET.left - right)
@@ -65,8 +71,8 @@ function hitTest(targets: Target[], u: number, v: number): Target | null {
 type Gesture =
   | { kind: "none" }
   | { kind: "press"; startX: number; startY: number; lastX: number; lastY: number; panning: boolean }
-  | { kind: "draw"; start: [number, number] }
-  | { kind: "line"; start: [number, number] }
+  | { kind: "draw"; start: [number, number]; anchored?: boolean; plate?: boolean }
+  | { kind: "line"; start: [number, number]; anchored?: boolean }
 
 /**
  * Full-bleed camera view with digital zoom, click-to-lock and zone drawing.
@@ -87,6 +93,7 @@ export function Stage(props: Props) {
   const [panning, setPanning] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const gesture = useRef<Gesture>({ kind: "none" })
+  const longPress = useRef<{ timer: number; x: number; y: number } | null>(null)
 
   // New camera -> new stream URL. Adjusted during render (not in an effect) so
   // the first mount opens the MJPEG stream once instead of twice.
@@ -125,8 +132,44 @@ export function Stage(props: Props) {
     reset()
   }, [rect.width, rect.height, camera?.id, reset])
 
-  const list = useMemo(() => targets?.targets ?? [], [targets])
+  const all = useMemo(() => targets?.targets ?? [], [targets])
+  // solo / hidden targets (camera view filter) are left out of every client overlay too
+  const list = useMemo(() => all.filter((t) => !t.hidden), [all])
   const locked = list.find((t) => t.id === lockedId) ?? null
+
+  // Right-click "Draw Zone Here" / "Draw Tripwire": the shape starts at the clicked point,
+  // follows the pointer and the next click places the other end.
+  const drawAt = useCallback(
+    (kind: "zone" | "tripwire", u: number, v: number) => {
+      onToolChange(kind)
+      if (kind === "zone") {
+        gesture.current = { kind: "draw", start: [u, v], anchored: true }
+        setDraft([u, v, u, v])
+      } else {
+        gesture.current = { kind: "line", start: [u, v], anchored: true }
+        setLineDraft([u, v, u, v])
+      }
+    },
+    [onToolChange],
+  )
+  const ctx = useStageContext({
+    camera,
+    targets: all,
+    view: targets?.view,
+    lockedId,
+    onLock,
+    follow,
+    onFollowChange,
+    onDrawAt: drawAt,
+    onAimAt: props.onAimAt,
+    onSnapshot: props.onSnapshot,
+    video: props.video,
+    notify: props.notify,
+    focusBox: (b) => {
+      onFollowChange(false)
+      focus(b, 0.5, 4)
+    },
+  })
 
   // Follow the locked target like a digital PTZ.
   useEffect(() => {
@@ -162,13 +205,48 @@ export function Stage(props: Props) {
 
   const inside = (u: number, v: number) => u >= 0 && u <= 1 && v >= 0 && v <= 1
 
+  const cancelLongPress = () => {
+    if (longPress.current) window.clearTimeout(longPress.current.timer)
+    longPress.current = null
+  }
+
+  const openMenuAt = (clientX: number, clientY: number) => {
+    const [u, v] = toNormalized(...local({ clientX, clientY }))
+    if (!inside(u, v)) return
+    ctx.open({ x: clientX, y: clientY, u, v, target: aiOn ? hitTest(list, u, v) : null })
+  }
+
   const onPointerDown = (e: React.PointerEvent) => {
     if (!loaded || e.button !== 0) return
     const [px, py] = local(e)
     const [u, v] = toNormalized(px, py)
+    const g0 = gesture.current
+    if ((g0.kind === "draw" || g0.kind === "line") && g0.anchored) {
+      finishGesture(g0, u, v, e.clientX, e.clientY) // second click of a right-click "Draw ... Here"
+      return
+    }
     if (!inside(u, v)) return
     e.currentTarget.setPointerCapture(e.pointerId)
-    if (tool === "zone") {
+    if (e.pointerType === "touch" && tool === "select" && !ctx.annotating) {
+      // a long press opens the same menu as a right-click
+      const x = e.clientX
+      const y = e.clientY
+      cancelLongPress()
+      longPress.current = {
+        x,
+        y,
+        timer: window.setTimeout(() => {
+          longPress.current = null
+          gesture.current = { kind: "none" }
+          setPanning(false)
+          openMenuAt(x, y)
+        }, LONG_PRESS_MS),
+      }
+    }
+    if (ctx.annotating) {
+      gesture.current = { kind: "draw", start: [u, v], plate: true }
+      setDraft([u, v, u, v])
+    } else if (tool === "zone") {
       gesture.current = { kind: "draw", start: [u, v] }
       setDraft([u, v, u, v])
     } else if (tool === "tripwire") {
@@ -180,6 +258,7 @@ export function Stage(props: Props) {
   }
 
   const onPointerMove = (e: React.PointerEvent) => {
+    if (longPress.current && Math.hypot(e.clientX - longPress.current.x, e.clientY - longPress.current.y) > 10) cancelLongPress()
     const g = gesture.current
     const [px, py] = local(e)
     const [u, v] = toNormalized(px, py)
@@ -213,31 +292,40 @@ export function Stage(props: Props) {
     }
   }
 
-  const onPointerUp = (e: React.PointerEvent) => {
-    const g = gesture.current
+  const finishGesture = (g: Gesture, u: number, v: number, clientX: number, clientY: number) => {
     gesture.current = { kind: "none" }
-    setPanning(false)
     if (g.kind === "line") {
       setLineDraft(null)
-      const [px, py] = local(e)
-      const [u, v] = toNormalized(px, py)
       const b: [number, number] = [Math.min(1, Math.max(0, u)), Math.min(1, Math.max(0, v))]
       if (Math.hypot(b[0] - g.start[0], b[1] - g.start[1]) > 0.02) props.onTripwireDrawn?.(g.start, b)
       onToolChange("select")
-      return
-    }
-    if (g.kind === "draw") {
+    } else if (g.kind === "draw") {
       setDraft(null)
-      const [px, py] = local(e)
-      const [u, v] = toNormalized(px, py)
       const nb: NBox = [
         Math.min(g.start[0], u),
         Math.min(g.start[1], v),
         Math.max(g.start[0], u),
         Math.max(g.start[1], v),
       ].map((n) => Math.min(1, Math.max(0, n))) as NBox
+      if (g.plate) {
+        if (nb[2] - nb[0] > 0.003 && nb[3] - nb[1] > 0.002) void ctx.onPlateBox(nb, clientX, clientY)
+        return
+      }
       if (nb[2] - nb[0] > 0.01 && nb[3] - nb[1] > 0.01) onZoneDrawn(nb)
       onToolChange("select")
+    }
+  }
+
+  const onPointerUp = (e: React.PointerEvent) => {
+    cancelLongPress()
+    const g = gesture.current
+    if ((g.kind === "draw" || g.kind === "line") && g.anchored) return // finished by the next click
+    gesture.current = { kind: "none" }
+    setPanning(false)
+    if (g.kind === "line" || g.kind === "draw") {
+      const [px, py] = local(e)
+      const [u, v] = toNormalized(px, py)
+      finishGesture(g, u, v, e.clientX, e.clientY)
       return
     }
     if (g.kind === "press" && !g.panning) {
@@ -249,7 +337,7 @@ export function Stage(props: Props) {
   }
 
   const onDoubleClick = (e: React.MouseEvent) => {
-    if (!loaded || tool !== "select") return
+    if (!loaded || tool !== "select" || ctx.annotating) return
     const [px, py] = local(e)
     const [u, v] = toNormalized(px, py)
     const hit = hitTest(list, u, v)
@@ -294,7 +382,7 @@ export function Stage(props: Props) {
 
   const hovered = tool === "select" && hoverId !== lockedId ? (list.find((t) => t.id === hoverId) ?? null) : null
   const cursor =
-    tool === "zone" || tool === "tripwire"
+    tool === "zone" || tool === "tripwire" || ctx.annotating
       ? "cursor-crosshair"
       : panning
         ? "cursor-grabbing"
@@ -314,11 +402,14 @@ export function Stage(props: Props) {
       onPointerLeave={() => gesture.current.kind === "none" && setHoverId(null)}
       onDoubleClick={onDoubleClick}
       onContextMenu={(e) => {
-        if (!props.onAimAt || !loaded) return
+        if (!loaded) return
+        e.preventDefault()
         const [u, v] = toNormalized(...local(e))
         if (!inside(u, v)) return
-        e.preventDefault()
-        props.onAimAt(u, v, e.clientX, e.clientY)
+        // Alt+right-click keeps the instant "aim the PTZ camera here"
+        if (e.altKey && props.onAimAt) return props.onAimAt(u, v, e.clientX, e.clientY)
+        if (ctx.annotating) return
+        openMenuAt(e.clientX, e.clientY)
       }}
     >
       <motion.div
@@ -352,9 +443,10 @@ export function Stage(props: Props) {
           )}
         </AnimatePresence>
 
+        {ctx.frozenLayer}
         <svg className="pointer-events-none absolute inset-0 size-full" viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden>
           <AnimatePresence>
-            {hovered && (
+            {hovered && !ctx.annotating && (
               <motion.rect
                 key={hovered.id}
                 initial={{ opacity: 0, x: hovered.box[0], y: hovered.box[1], width: hovered.box[2] - hovered.box[0], height: hovered.box[3] - hovered.box[1] }}
@@ -424,6 +516,8 @@ export function Stage(props: Props) {
           </motion.p>
         )}
       </AnimatePresence>
+
+      {ctx.overlay}
 
       {loaded && (
         <StageToolbar
