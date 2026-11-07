@@ -28,6 +28,8 @@ interface Props {
   disabled?: boolean
   /** CUDA GPU available: drives the recommendation (M on GPU, N on CPU). */
   cuda: boolean
+  /** Compute device when not on Auto (Compute tab), shown as a chip. */
+  device?: { label: string; fallback: boolean; state: string } | null
 }
 
 /**
@@ -35,7 +37,7 @@ interface Props {
  * list. Nothing changes until "Use Model" is pressed, so browsing never
  * triggers a weight download or a model reload.
  */
-export function ModelPicker({ models, value, onChange, disabled, cuda }: Props) {
+export function ModelPicker({ models, value, onChange, disabled, cuda, device }: Props) {
   const [open, setOpen] = useState(false)
   const current = value ? parseModel(value) : null
   const [family, setFamily] = useState<ModelFamily>(current?.family ?? "YOLO26")
@@ -85,7 +87,8 @@ export function ModelPicker({ models, value, onChange, disabled, cuda }: Props) 
         >
           <Cpu className="size-3.5 shrink-0 text-muted-foreground" />
           <span className="truncate">{modelLabel(value)}</span>
-          {curInfo?.engine_active && <Zap className="size-3 shrink-0 text-primary" aria-label="GPU engine active" />}
+          {curInfo?.engine_active && !device && <Zap className="size-3 shrink-0 text-primary" aria-label="GPU engine active" />}
+          {device && <DeviceChip device={device} />}
           <ChevronDown className={cn("ml-auto size-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
         </button>
       </PopoverTrigger>
@@ -199,6 +202,11 @@ export function ModelPicker({ models, value, onChange, disabled, cuda }: Props) 
                 </span>
               )}
               {draft === value && <span>In use</span>}
+              {device && (
+                <span className={device.fallback ? "text-destructive" : "text-primary"}>
+                  {device.fallback ? `${device.label} failed, on Auto` : `Runs on ${device.label}`}
+                </span>
+              )}
             </div>
           </div>
           <button
@@ -215,6 +223,21 @@ export function ModelPicker({ models, value, onChange, disabled, cuda }: Props) 
         </div>
       </PopoverContent>
     </Popover>
+  )
+}
+
+function DeviceChip({ device }: { device: { label: string; fallback: boolean; state: string } }) {
+  return (
+    <span
+      title={device.fallback ? `${device.label} failed - running on Auto (see Compute tab)` : `Detection runs on ${device.label} (Compute tab)`}
+      className={cn(
+        "shrink-0 rounded border px-1 text-[10px] leading-4",
+        device.fallback ? "border-destructive/60 text-destructive" : "border-primary/60 text-primary",
+        device.state === "preparing" && "animate-pulse",
+      )}
+    >
+      {device.label}
+    </span>
   )
 }
 

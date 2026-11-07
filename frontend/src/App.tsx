@@ -5,6 +5,7 @@ import { AlarmToasts, SnapshotFlash, useToasts } from "@/components/alarm-toasts
 import { ClipPlayer } from "@/components/clip-player"
 import { EventsButton, EventsDrawer } from "@/components/events-drawer"
 import { CameraSwitcher } from "@/components/camera-switcher"
+import { ComputeChip } from "@/components/compute-panel"
 import { EspMenu } from "@/components/esp-menu"
 import { PlateLog, PlateLogButton } from "@/components/plate-log"
 import { useOperation } from "@/components/operation"
@@ -20,6 +21,7 @@ import { usePlateLog } from "@/hooks/use-plate-log"
 import { useTargets } from "@/hooks/use-targets"
 import { useWorkspace } from "@/hooks/use-workspace"
 import { alertsApi, type AlarmEvent } from "@/lib/alerts"
+import { OPEN_COMPUTE_EVENT } from "@/lib/compute"
 import { api } from "@/lib/api"
 import { OPEN_PLATE_LOG_EVENT, plateLogApi, type PlateLogEntry } from "@/lib/platelog"
 import type { Camera, NBox } from "@/lib/types"
@@ -267,6 +269,13 @@ export default function App() {
                   {video.entry}
                 </div>
                 {ops.viewToggle}
+                <ComputeChip
+                  cameraId={activeId}
+                  onOpen={() => {
+                    setMenuOpen(true)
+                    window.setTimeout(() => window.dispatchEvent(new Event(OPEN_COMPUTE_EVENT)), 0)
+                  }}
+                />
                 <LiveReadout status={status} live={live} />
                 <button
                   type="button"
