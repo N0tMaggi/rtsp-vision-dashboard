@@ -25,6 +25,7 @@ SecurityCam is a modular RTSP camera dashboard built with Flask, OpenCV, and YOL
 10. [ESP Features and Controls](#esp-features-and-controls)
     - [Video Analysis](#video-analysis)
 11. [Model Management](#model-management)
+    - [Compute devices](#compute-devices)
 12. [Performance Tuning](#performance-tuning)
 13. [Operational Notes](#operational-notes)
 14. [Troubleshooting](#troubleshooting)
@@ -889,6 +890,54 @@ vehicle and turns on follow so the live view zooms onto it.
 | `GET` / `POST` | `/<entry_id>/live` | Is the vehicle still visible? / lock it as live target |
 | `GET` / `POST` | `/watchlist` | Watchlist / add `{"plate", "note"}` |
 | `DELETE` | `/watchlist/<watch_id>` | Remove from the watchlist |
+
+## Compute devices
+
+Optional and **off by default**: the ESP menu has a **Compute** tab (chip icon) where you can choose which
+hardware runs which AI workload. Every workload starts on **Auto**, which is exactly the normal behaviour
+(YOLO on the NVIDIA GPU via PyTorch, or its TensorRT engine when built, else the CPU; plate models via
+onnxruntime/OpenCV; faces via OpenCV). Keep Auto unless you have a reason, e.g. keeping the GPU free while gaming.
+
+| Workload | Options | Notes |
+|---|---|---|
+| Object detection (YOLO) | Auto, NVIDIA GPU, Intel NPU, Intel GPU, CPU | Global default plus optional per-camera override (video cameras included). Tracking, ReID and pose keep working. |
+| Faces (YuNet + SFace) | Auto, Intel NPU, Intel GPU, CPU | No CUDA backend for these models. |
+| License plates (detector + OCR) | Auto, Intel GPU, CPU | The detector's built-in NMS returns wrong boxes on the Intel NPU (OpenVINO 2026.4), so the NPU is disabled for plates. |
+
+* Only detected hardware is selectable; everything else is shown greyed out with the reason.
+* Intel devices run through **OpenVINO** (`python -m pip install openvino`). The start scripts install it
+  automatically only when an Intel NPU is present (Windows: `Get-PnpDevice -Class ComputeAccelerator`,
+  Linux: `/dev/accel/accel0` or the `intel_vpu` module); opt out with `SECURITYCAM_INSTALL_OPENVINO=0`.
+  Without OpenVINO, "CPU" means PyTorch / OpenCV on the CPU.
+* YOLO models are exported once to `models/<model>_openvino_model/` (FP16, static `SECURITYCAM_YOLO_IMG_SIZE`
+  input) and compiled with a cache in `models/ov_cache`. Preparation runs in the background; detection keeps
+  running on Auto meanwhile and switches over when the device is ready.
+* With an OpenVINO YOLO model, BoT-SORT ReID uses the small `yolo26n-cls` classifier on the CPU.
+* **Fallback:** if a chosen device fails (export, compile, inference, device gone), that workload goes back to
+  Auto, the error is shown in the tab, and nothing else is affected. Picking the device again retries.
+* Every non-Auto choice shows notices with numbers (measured on this machine after **Test speed**, otherwise
+  the reference table below), a chip next to the model button and in the header, and a **Reset to recommended**
+  button.
+* API: `GET /api/compute`, `PATCH /api/compute` (`{"workloads": {"yolo": "npu"}, "cameras": {"front": "cpu" | null}}`),
+  `POST /api/compute/reset`, `POST /api/compute/benchmark` (`{"workload": "yolo" | "faces" | "plates"}`) and
+  `GET /api/compute/benchmark`. Assignments are saved in `data/state.json` (section `compute`).
+
+Reference numbers, measured on an **Intel Core Ultra 7 265K + RTX 5080** (median pure inference per frame,
+OpenVINO 2026.4; RTX value is eager PyTorch FP16, where Python launch overhead dominates small models - a
+TensorRT engine via "Build for GPU" is much faster than everything else):
+
+| Model | Intel NPU | Intel iGPU | CPU (OpenVINO) | RTX 5080 (PyTorch FP16) |
+|---|---|---|---|---|
+| YOLO26 N (640) | 6.1 ms | 5.6 ms | 10.5 ms | 16.4 ms |
+| YOLO26 S (640) | 12.0 ms | 12.7 ms | 31.0 ms | 12.7 ms |
+| YOLO26 M (640) | 27.1 ms | 35.2 ms | 91.4 ms | 14.0 ms |
+| YuNet face detector (640) | 2.8 ms | 1.7 ms | 2.4 ms | – |
+| SFace (112) | 2.7 ms | 1.4 ms | 2.6 ms | – |
+| Plate detector (384, end-to-end NMS) | 4.0 ms (wrong results) | 3.1 ms | 5.7 ms | – |
+
+End to end in the camera worker (Ultralytics pre/post-processing included, 1280x720 frames, same machine),
+"Test speed" measured YOLO26 S at 11 ms on the RTX 5080 (PyTorch), 16 ms on the NPU, 16 ms on the iGPU and
+46 ms on the CPU; YOLO26 M at 11 / 32 / 39 / 124 ms.
 
 ## Roadmap
 

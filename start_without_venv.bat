@@ -43,6 +43,22 @@ echo [SETUP] NVIDIA GPU found - installing TensorRT export tools ^(large downloa
 if errorlevel 1 echo [WARN] TensorRT install failed - continuing without GPU optimization.
 :skip_trt
 
+rem --- OpenVINO for the Intel NPU (optional, Compute tab) --------------------
+rem Installed automatically only when an Intel NPU is found. Nothing changes
+rem unless you pick a device in the Compute tab. Skip with:  set SECURITYCAM_INSTALL_OPENVINO=0
+if "%SECURITYCAM_INSTALL_OPENVINO%"=="0" goto :skip_ov
+powershell -NoProfile -Command "if (Get-PnpDevice -Class ComputeAccelerator -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -match 'Intel' }) { exit 0 } else { exit 1 }" >nul 2>&1
+if errorlevel 1 goto :skip_ov
+%PYTHON_BIN% -c "import openvino" >nul 2>&1
+if not errorlevel 1 (
+  echo [SETUP] OpenVINO already installed.
+  goto :skip_ov
+)
+echo [SETUP] Intel NPU found - installing OpenVINO ^(optional, for the Compute tab^)...
+%PYTHON_BIN% -m pip install openvino
+if errorlevel 1 echo [WARN] OpenVINO install failed - Intel NPU/GPU stay unavailable, everything else works.
+:skip_ov
+
 echo [RUN] Starting SecurityCam (without venv)...
 %PYTHON_BIN% main.py
 
