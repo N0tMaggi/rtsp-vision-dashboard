@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
-from .. import deps
+from .. import compute, deps
 from .common import PlateRead
 
 DET_CONF = 0.35
@@ -112,6 +112,11 @@ class PlateReader:
         self.h, self.w = int(cfg["img_height"]), int(cfg["img_width"])
         self.rgb = str(cfg.get("image_color_mode", "grayscale")).lower() == "rgb"
         self.det_size = 384
+        # OpenVINO nets when plates are assigned to an Intel device in the Compute tab (else None)
+        nets = compute.plate_nets(det_path, ocr_path, self.det_size, (1, self.h, self.w, 3 if self.rgb else 1))
+        if nets is not None:
+            self.det, self.ocr = nets
+            return
         self.det = _Net(str(det_path), np.zeros((1, 3, self.det_size, self.det_size), np.float32))
         dummy = np.full((1, self.h, self.w, 3 if self.rgb else 1), 128, np.uint8)
         self.ocr = _Net(str(ocr_path), dummy, check_finite=True)
@@ -223,7 +228,8 @@ class PlateReader:
 def get_reader() -> Optional[PlateReader]:
     """Thread-local reader, or None while models download / when they can't run."""
     reader = getattr(_local, "reader", None)
-    if reader is not None:
+    key = compute.small_key("plates")          # "auto" unless plates run on a compute device
+    if reader is not None and getattr(_local, "key", "auto") == key:
         return reader
     if getattr(_local, "failed", False):
         return None
@@ -240,6 +246,7 @@ def get_reader() -> Optional[PlateReader]:
     _status["error"] = ""
     _status["backend"] = reader.det.backend or ""
     _local.reader = reader
+    _local.key = key
     return reader
 
 

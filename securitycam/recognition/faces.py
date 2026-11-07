@@ -11,7 +11,7 @@ from typing import List, Optional, Tuple
 import cv2
 import numpy as np
 
-from .. import deps
+from .. import compute, deps
 
 YUNET_SCORE = 0.7          # 0.6 lets hands through; real faces score 0.85+ (profiles ~0.7)
 YUNET_NMS = 0.3
@@ -90,11 +90,13 @@ def detect(frame: np.ndarray, scale: float = 1.0) -> Optional[np.ndarray]:
     img = frame if abs(s - 1.0) < 1e-3 else cv2.resize(frame, (max(1, int(w * s)), max(1, int(h * s))),
                                                         interpolation=cv2.INTER_AREA)
     ih, iw = img.shape[:2]
-    try:
-        det.setInputSize((iw, ih))
-        _, faces = det.detect(img)
-    except cv2.error:
-        return np.zeros((0, 15), np.float32)
+    faces = compute.faces_detect(img, YUNET_SCORE, YUNET_NMS, YUNET_TOP_K)   # None unless on an OpenVINO device
+    if faces is None:
+        try:
+            det.setInputSize((iw, ih))
+            _, faces = det.detect(img)
+        except cv2.error:
+            return np.zeros((0, 15), np.float32)
     if faces is None or len(faces) == 0:
         return np.zeros((0, 15), np.float32)
     faces = np.asarray(faces, np.float32).reshape(-1, 15)
@@ -122,7 +124,9 @@ def embed(frame: np.ndarray, face_row: np.ndarray) -> Optional[np.ndarray]:
         return None
     try:
         aligned = rec.alignCrop(frame, face_row.reshape(1, -1) if face_row.ndim == 1 else face_row)
-        feat = rec.feature(aligned)
+        feat = compute.face_feature(aligned)       # None unless on an OpenVINO device
+        if feat is None:
+            feat = rec.feature(aligned)
     except cv2.error:
         return None
     feat = np.asarray(feat, np.float32).reshape(-1)

@@ -242,6 +242,8 @@ def create_app() -> Flask:
     app.register_blueprint(alerts_blueprint)
     from .videos.api import blueprint as videos_blueprint  # video analysis: library, file/URL sources, playback
     app.register_blueprint(videos_blueprint)
+    from .compute.api import blueprint as compute_blueprint  # compute devices: which hardware runs which workload
+    app.register_blueprint(compute_blueprint)
     return app
 
 
