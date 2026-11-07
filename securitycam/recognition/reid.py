@@ -189,10 +189,14 @@ def remap_results(matcher: ReentryMatcher, frame: np.ndarray, results) -> int:
     arr = data.cpu().numpy() if hasattr(data, "cpu") else np.asarray(data)
     rows = [(int(r[-3]), int(r[-1]), (float(r[0]), float(r[1]), float(r[2]), float(r[3]))) for r in arr]
     mapping = matcher.process(frame, rows)
-    changed = 0
-    for i, (rid, _, _) in enumerate(rows):
-        cid = mapping.get(rid, rid)
-        if cid != rid:
-            data[i, -3] = cid
-            changed += 1
-    return changed
+    updates = [(i, mapping[rid]) for i, (rid, _, _) in enumerate(rows) if mapping.get(rid, rid) != rid]
+    if not updates:
+        return 0
+    # Ultralytics creates result tensors under torch.inference_mode(); writing into
+    # them afterwards raises "Inplace update to inference tensor outside InferenceMode".
+    # A clone made outside inference mode is a normal tensor we may modify.
+    new = data.clone() if hasattr(data, "clone") else np.array(data, copy=True)
+    for i, cid in updates:
+        new[i, -3] = cid
+    boxes.data = new
+    return len(updates)
