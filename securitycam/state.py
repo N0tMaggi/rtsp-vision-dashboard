@@ -13,6 +13,7 @@ YOLO = None
 
 YOLO_AVAILABLE = False
 CUDA_AVAILABLE = False
+CUDA_REASON = ""          # why CUDA is not used (set by deps.ensure_torch_and_yolo), shown in the UI
 DEVICE = "cpu"
 
 face_cascade = None

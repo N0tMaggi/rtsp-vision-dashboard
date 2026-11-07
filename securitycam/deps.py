@@ -70,12 +70,14 @@ def ensure_torch_and_yolo():
             state.YOLO_AVAILABLE = False
             state.DEVICE = "cpu"
             state.CUDA_AVAILABLE = False
+            state.CUDA_REASON = f"PyTorch/Ultralytics could not be imported: {e}"
             return
 
     state.YOLO_AVAILABLE = True
 
     state.DEVICE = "cpu"
     state.CUDA_AVAILABLE = False
+    state.CUDA_REASON = ""
 
     if state.torch.cuda.is_available():
         try:
@@ -100,15 +102,22 @@ def ensure_torch_and_yolo():
                 print(f"[CUDA] GPU capability sm_{cap} is not supported by this torch build.")
                 print("[CUDA] -> Falling back to CPU (device='cpu')")
                 print("[CUDA] Tip: install a newer CUDA torch build (nightly/current).")
+                state.CUDA_REASON = f"This PyTorch build does not support the GPU (sm_{cap})."
                 state.DEVICE = "cpu"
                 state.CUDA_AVAILABLE = False
 
         except Exception as e:
             print("[CUDA] GPU detection error:", e)
+            state.CUDA_REASON = f"GPU detection failed at startup: {e}"
             state.DEVICE = "cpu"
             state.CUDA_AVAILABLE = False
     else:
         print("[CUDA] torch.cuda.is_available() == False -> no CUDA")
+        if not getattr(state.torch.version, "cuda", None):
+            state.CUDA_REASON = f"PyTorch {state.torch.__version__} is a CPU-only build (start the server with start_with_venv.bat to install the CUDA build)."
+        else:
+            state.CUDA_REASON = ("PyTorch has CUDA support, but no GPU was usable when the server started "
+                                 "(driver reset, GPU busy or asleep?). Restart the server to check again.")
 
     print(f"[DEVICE] final: DEVICE={state.DEVICE}, CUDA_AVAILABLE={state.CUDA_AVAILABLE}")
 

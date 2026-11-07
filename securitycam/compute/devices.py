@@ -209,7 +209,7 @@ def availability(dev_id: str) -> tuple[bool, Optional[str]]:
     if dev_id == "cuda":
         if state.CUDA_AVAILABLE:
             return True, None
-        return False, "No NVIDIA GPU with a working CUDA build of PyTorch."
+        return False, getattr(state, "CUDA_REASON", "") or "No NVIDIA GPU with a working CUDA build of PyTorch."
     if dev_id not in ("npu", "igpu", "cpu"):
         return False, "Unknown device."
     if dev_id == "cpu" and not openvino_installed():
