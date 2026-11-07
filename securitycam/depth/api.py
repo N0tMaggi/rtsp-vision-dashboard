@@ -1,7 +1,7 @@
 """HTTP API: ``/api/cameras/<id>/depth`` (status) and ``.../depth/calibrate`` (user scale).
 
 POST ``/calibrate`` body (JSON):
-  ``{"target_id": 12, "distance_m": 4.5}``  -> "this target is 4.5 m away"
+  ``{"target_id": 12, "distance_m": 4.5}``  -> "this target is 4.5 m away" (no id = the locked target)
   ``{"reset": true}``                        -> back to automatic calibration
 The result is stored in the ``depth_scale`` setting (0 = auto), so it is saved
 with the camera's other settings.
@@ -52,6 +52,10 @@ def depth_calibrate(camera_id: str):
         return jsonify({"ok": True, "depth": status(cs, include_scan=False)})
     tid = body.get("target_id")
     dist = body.get("distance_m")
+    if tid is None:                       # default: the locked target
+        tid = getattr(cs, "esp_locked", None)
+        if tid is None:
+            return _err("no_locked_target", 409)
     if isinstance(tid, bool) or not isinstance(tid, int):
         return _err("invalid_target")
     if isinstance(dist, bool) or not isinstance(dist, (int, float)) or not math.isfinite(dist) \

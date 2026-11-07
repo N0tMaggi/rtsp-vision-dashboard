@@ -2,7 +2,7 @@
 import { useEffect, useSyncExternalStore } from "react"
 
 export type DeviceId = "auto" | "cuda" | "npu" | "igpu" | "cpu"
-export type WorkloadId = "yolo" | "faces" | "plates"
+export type WorkloadId = "yolo" | "faces" | "plates" | "depth"
 export type NoticeLevel = "info" | "warn" | "error"
 
 export interface HardwareDevice {

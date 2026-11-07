@@ -83,6 +83,38 @@ export interface Target {
   /** Newer backends: body points, normalized like `box` (pose keypoints or box fractions). */
   aim?: Partial<Record<AimKey, [number, number]>>
   aim_src?: "pose" | "box"
+  // --- depth package (only while the camera's Depth setting is on) ---
+  /** Metric-ish depth from the depth map (meters); `distance` uses it when calibrated. */
+  depth_m?: number
+  distance_src?: "depth" | "box"
+  distance_box?: number
+  /** Floor-plan position in meters: [x right, z ahead] of the camera (pan ignored). */
+  ground?: [number, number]
+  /** Same in world bearings (PTZ, anchored): stays put while the camera pans. */
+  ground_world?: [number, number]
+  ground_src?: "depth" | "box"
+  // --- end depth ---
+}
+
+/** Depth workload status of a camera (targets payload `depth`, `/api/cameras/<id>/depth`). */
+export interface DepthStatus {
+  enabled: boolean
+  state: "off" | "idle" | "downloading" | "loading" | "running" | "failed" | "stopped"
+  model: { state: "missing" | "downloading" | "ready" | "failed"; name: string; license: string }
+  device: string | null
+  device_label: string | null
+  source: "auto" | "user" | null
+  backend: string | null
+  input: string | null
+  latency_ms: number | null
+  fps: number | null
+  rate: number
+  calibration: { mode: "user" | "auto" | "none"; scale: number | null; samples: number; confidence: number; ready: boolean }
+  fov_h: number | null
+  error: string | null
+  note: string
+  /** Coarse floor occupancy [x, z, weight 0..1] in meters (world frame when `world`). */
+  scan?: { cell: number; world: boolean; pts: [number, number, number][] }
 }
 
 export interface TargetTag {
@@ -133,6 +165,8 @@ export interface TargetsResponse {
   pose?: CameraPose
   /** Solo / hidden targets of this camera (newer backends). */
   view?: ViewFilter
+  /** Depth workload status (depth package; only while Depth is on). */
+  depth?: DepthStatus
 }
 
 export interface Zone {

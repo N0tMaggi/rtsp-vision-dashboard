@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils"
 import { useStageContext, type Notice } from "./stage-context"
 import { StageToolbar, type Tool } from "./stage-toolbar"
 import { StageVisuals } from "./stage-visuals"
+import { RoomMap } from "./room-map"
 import { CrosshairOverlay } from "./crosshair-overlay"
 
 type Phase = "idle" | "connecting" | "live" | "error"
@@ -501,6 +502,18 @@ export function Stage(props: Props) {
             onFollowChange(false)
             focus(b, 10, view.view.current.s)
           }}
+        />
+      )}
+      {/* depth package: top-down room map (HUD pref "Room Map", default off) */}
+      {loaded && aiOn && (
+        <RoomMap
+          targets={list}
+          lockedId={lockedId}
+          hoveredId={hovered?.id ?? null}
+          pose={targets?.pose}
+          depth={targets?.depth}
+          compact={rect.width < 640}
+          onLock={onLock}
         />
       )}
       </motion.div>
