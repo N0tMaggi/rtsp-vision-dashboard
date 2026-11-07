@@ -35,6 +35,7 @@ ENUM_KEYS: dict[str, frozenset[str]] = {
     "heatmap_window": frozenset({"5m", "1h", "24h"}),
     "night_vision": frozenset({"off", "on", "auto"}),
     "face_detector": frozenset({"yunet", "haar"}),
+    "depth_view_palette": frozenset({"turbo", "inferno"}),   # depth (securitycam/depth)
 }
 
 # Free-form id keys: key -> pattern ("" clears).
@@ -56,6 +57,12 @@ NUMERIC_KEYS: dict[str, tuple[float, float, str]] = {
     "abandoned_seconds": (5, 600, "int"),
     "face_match_threshold": (0.2, 0.8, "float"),
     "face_cluster_threshold": (0.3, 0.8, "float"),
+    # depth (securitycam/depth)
+    "depth_view_opacity": (0.0, 1.0, "float"),
+    "depth_rate": (0.5, 10.0, "float"),
+    "depth_size": (196, 518, "int"),
+    "depth_fov": (30, 170, "int"),
+    "depth_scale": (0.0, 100000.0, "float"),
 }
 
 

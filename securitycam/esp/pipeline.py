@@ -22,6 +22,7 @@ from .settings import EspSettings
 from ..recognition import overlay as recog
 from .. import anchor
 from .. import tags as tags_view
+from .. import depth as depth_hooks
 
 _LOCK_INIT_GUARD = threading.Lock()
 _FADE_OPAQUE = 0.985
@@ -149,6 +150,7 @@ def draw_custom_esp(camera_state, frame, results, frame_ts: Optional[float] = No
     if s.thermal:
         R.apply_thermal(frame, gray)
     visuals.frame_effects(frame, camera_state, vs, t_frame, frame_idx, skip_night=s.thermal)
+    depth_hooks.draw_view(camera_state, frame)   # depth package: depth view under every ESP stroke
     inset = R.make_face_inset(frame, faces, s.face_zoom_scale, st.margin) if s.face_zoom else None
     if s.center_dot:
         R.draw_center_dot(frame, center_dot_color(s, now), st)

@@ -37,6 +37,14 @@ WORKLOADS: Dict[str, Dict[str, Any]] = {
             "npu": "The plate detector's built-in NMS gives wrong results on the Intel NPU. Use Intel GPU or CPU.",
         },
     },
+    # --- depth (securitycam/depth): new workload, so its Auto may differ from "old behaviour":
+    # Auto = Intel NPU if present, else NVIDIA GPU, else Intel GPU, else CPU (depth.model.auto_device)
+    "depth": {
+        "label": "Depth",
+        "description": "Depth Anything V2 for the room map and depth view (only while Depth is on).",
+        "devices": ("cuda", "npu", "igpu", "cpu"),
+        "per_camera": False,
+    },
 }
 CHOICES = ("auto",) + devices.DEVICE_IDS
 NO_CUDA_REASON = "These models have no CUDA backend here. Auto already runs them on the CPU, which is fast enough."

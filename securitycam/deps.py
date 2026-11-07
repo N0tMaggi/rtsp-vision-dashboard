@@ -163,7 +163,15 @@ ASSETS = {
         "global_mobile_vit_v2_ocr_config.yaml",
         "https://github.com/ankandrew/cnn-ocr-lp/releases/download/arg-plates/global_mobile_vit_v2_ocr_config.yaml",
     ),
+    # --- depth package (securitycam/depth): Depth Anything V2 Small, Apache-2.0 (pinned revision) ---
+    "depth_anything_v2_small": (
+        "depth_anything_v2_small.onnx",
+        "https://huggingface.co/onnx-community/depth-anything-v2-small/resolve/"
+        "4472b7362082ad9968fee890ca0f1e5aca36b93d/onnx/model.onnx",
+    ),
 }
+# Minimum sizes of large assets (a truncated / error-page download is rejected).
+ASSET_MIN_BYTES = {"depth_anything_v2_small": 90_000_000}
 _ASSET_RETRY_S = 60.0
 _asset_lock = threading.Lock()
 asset_status: dict[str, str] = {}          # name -> missing | downloading | ready | failed
@@ -182,6 +190,7 @@ def _download(name: str, filename: str, url: str) -> None:
         # Catch truncated/HTML-error downloads. Small text configs (e.g. the
         # 507-byte plate OCR yaml) are legitimately tiny, model weights are not.
         min_bytes = 64 if Path(filename).suffix.lower() in (".yaml", ".yml", ".json", ".txt") else 1024
+        min_bytes = ASSET_MIN_BYTES.get(name, min_bytes)
         size = tmp.stat().st_size
         if size < min_bytes:
             raise ValueError(f"download too small ({size} bytes)")
