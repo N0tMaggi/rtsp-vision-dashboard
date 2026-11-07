@@ -14,12 +14,25 @@ import time
 
 import cv2
 
-from . import capture_env, compute, config, deps, recognition, state
+from . import capture_env, compute, config, deps, gpu, recognition, state
 from .alerts.clips import record_frame
 from .esp import draw_custom_esp
 from .ptz import pose as ptz_pose
 
 FRAME_WAIT_S = 2.0          # how long a client waits for a new frame before flagging the stream
+
+
+# One CUDA job at a time process-wide (see securitycam/gpu.py for why).
+_GPU_INFER_LOCK = gpu.LOCK
+_CUDA_RETRY_RELOAD_AFTER = 3        # consecutive CUDA errors before the camera reloads its model
+
+
+def _results_to_cpu(results):
+    """Copy result tensors to host memory so render/recognition threads never touch the GPU."""
+    try:
+        return [r.cpu() for r in results]
+    except Exception:
+        return results
 
 
 def yolo_worker(camera_state):
@@ -29,6 +42,7 @@ def yolo_worker(camera_state):
     """
     print(f"[YOLO Worker] Started for {camera_state.camera_id}.")
     last_frame_ref = None
+    cuda_errors = 0
 
     while not camera_state.closed:
         if not camera_state.yolo_enabled or not state.YOLO_AVAILABLE:
@@ -60,11 +74,17 @@ def yolo_worker(camera_state):
             started_at = time.time()
             current_conf = camera_state.esp_settings.get("confidence_threshold", 0.35)
 
-            if do_track:
-                results = model.track(current_frame_ref, persist=True, verbose=False, device=compute.yolo_device(camera_state, model), conf=current_conf,
-                                      **recognition.track_kwargs(camera_state, model))
-            else:
-                results = model(current_frame_ref, verbose=False, device=compute.yolo_device(camera_state, model), conf=current_conf)
+            device = compute.yolo_device(camera_state, model)
+            on_cuda = gpu.is_cuda(device)
+            with gpu.guard(device):   # also covers the first call, where Ultralytics loads a TensorRT engine
+                if do_track:
+                    results = model.track(current_frame_ref, persist=True, verbose=False, device=device, conf=current_conf,
+                                          **recognition.track_kwargs(camera_state, model))
+                else:
+                    results = model(current_frame_ref, verbose=False, device=device, conf=current_conf)
+                if on_cuda:
+                    results = _results_to_cpu(results)
+            cuda_errors = 0
             last_frame_ref = current_frame_ref
             if epoch != camera_state.source_epoch:
                 continue
@@ -84,11 +104,23 @@ def yolo_worker(camera_state):
             msg = str(exc)
             if compute.on_yolo_error(camera_state, exc):
                 pass    # a non-auto compute device failed: the camera is back on Auto
-            elif ("no kernel image is available" in msg or "CUDA error" in msg) and state.DEVICE.startswith("cuda"):
-                print(f"[YOLO Worker] CUDA crash for {camera_state.camera_id} -> fallback CPU")
+            elif "no kernel image is available" in msg and state.DEVICE.startswith("cuda"):
+                # The installed torch build really can't run on this GPU: CPU is the only option.
+                print(f"[YOLO Worker] GPU not supported by this PyTorch build ({camera_state.camera_id}) -> fallback CPU")
                 state.DEVICE = "cpu"
                 state.CUDA_AVAILABLE = False
+                state.CUDA_REASON = "The installed PyTorch build cannot run on this GPU (details in the server log)."
                 camera_state.yolo_model = None
+            elif "CUDA error" in msg or "CUDA" in msg and "error" in msg.lower():
+                # Transient CUDA failure (e.g. a stream-capture conflict): retry on the GPU;
+                # after a few in a row, reload this camera's model. Never switch globally to CPU.
+                cuda_errors += 1
+                first_line = msg.strip().splitlines()[0] if msg.strip() else type(exc).__name__
+                print(f"[YOLO Worker] CUDA error for {camera_state.camera_id} ({cuda_errors}x): {first_line}")
+                if cuda_errors >= _CUDA_RETRY_RELOAD_AFTER:
+                    print(f"[YOLO Worker] Reloading model for {camera_state.camera_id} after repeated CUDA errors.")
+                    camera_state.yolo_model = None
+                    cuda_errors = 0
             else:
                 print(f"[YOLO Worker] Error for {camera_state.camera_id}: {exc}")
             time.sleep(1)

@@ -15,7 +15,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
 
-from .. import config, deps, state
+from .. import config, deps, gpu, state
 from . import assignments, devices, ov_runtime
 
 TIME_BUDGET_S = 2.5
@@ -173,7 +173,8 @@ def _bench_yolo(job, set_row) -> None:
             else:
                 model = cy.prepare_model(name, dev, on_stage=lambda st, d=dev: set_row(d, stage=st))
                 ul = model._securitycam_device
-            ms = _time(lambda: model(frame, verbose=False, device=ul, conf=0.35))
+            with gpu.guard(ul):     # never overlap CUDA work of camera workers (TensorRT stream capture)
+                ms = _time(lambda: model(frame, verbose=False, device=ul, conf=0.35))
             set_row(dev, ms=round(ms, 2), status="done")
         except Exception as exc:
             set_row(dev, error=f"{type(exc).__name__}: {str(exc).splitlines()[0][:160] if str(exc) else ''}",

@@ -14,7 +14,7 @@ import traceback
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from .. import config, state
+from .. import config, gpu, state
 
 TRT_INSTALL_CMD = "python -m pip install tensorrt onnx onnxslim"
 
@@ -159,7 +159,10 @@ def _export_tensorrt(name: str) -> Path:
     _set(name, stage="loading", progress=0.1)
     model = YOLO(str(src))
     _set(name, stage="exporting", progress=0.15)
-    out = model.export(format="engine", half=True, device=0, imgsz=640, verbose=False)
+    # The TensorRT build captures CUDA streams heavily: camera inference pauses meanwhile
+    # (securitycam/gpu.py) instead of crashing with cudaErrorStreamCaptureUnsupported.
+    with gpu.LOCK:
+        out = model.export(format="engine", half=True, device=0, imgsz=640, verbose=False)
     return Path(out)
 
 
