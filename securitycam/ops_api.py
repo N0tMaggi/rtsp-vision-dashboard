@@ -65,6 +65,13 @@ def _body():
 # ---------------------------------------------------------------------------- overview (grid)
 @blueprint.route("/api/overview")
 def overview():
+    resp = jsonify(overview_payload())
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+def overview_payload() -> dict:
+    """fps / detections / live flag of every camera (grid tiles; also pushed by the live stream)."""
     now = time.time()
     cams = []
     for cs in state.list_camera_states():
@@ -82,9 +89,7 @@ def overview():
             "live": bool(cs.rtsp_url) and not cs.stream_error and last > 0 and now - last < 3.0,
             "preset": (presets.STORE.last_applied.get(cs.camera_id) or {}).get("preset_id"),
         })
-    resp = jsonify({"cameras": cams, "ts": now})
-    resp.headers["Cache-Control"] = "no-store"
-    return resp
+    return {"cameras": cams, "ts": now}
 
 
 # ---------------------------------------------------------------------------- presets

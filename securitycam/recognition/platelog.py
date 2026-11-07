@@ -619,14 +619,18 @@ class PlateLog:
         out.sort(key=lambda g: (-g["match"], -g["last_seen"]))
         return out
 
-    def summary(self, seen: float = 0.0) -> dict:
+    def summary(self, seen: float = 0.0, recent: int = 0) -> dict:
         self._ensure_loaded()
         with self._lock:
             entries = list(self._entries.values())
             version = self.version
         latest = max((e.get("first_seen", 0) for e in entries), default=0.0)
-        return {"total": len(entries), "new": sum(1 for e in entries if e.get("first_seen", 0) > seen),
-                "latest": latest, "version": version}
+        out = {"total": len(entries), "new": sum(1 for e in entries if e.get("first_seen", 0) > seen),
+               "latest": latest, "version": version}
+        if recent > 0:
+            times = sorted((float(e.get("first_seen", 0) or 0) for e in entries), reverse=True)
+            out["recent"] = [round(t, 3) for t in times[:recent]]
+        return out
 
     # ------------------------------------------------------------------ deletes
     def delete(self, entry_id: str) -> bool:

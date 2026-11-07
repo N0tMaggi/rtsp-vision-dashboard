@@ -6,6 +6,8 @@ import {
   type PlateLogFilters,
   type WatchItem,
 } from "@/lib/platelog"
+import { useLiveTopic, useShouldPoll } from "@/hooks/use-live-stream"
+import type { PlatesSummary } from "@/lib/live-stream"
 
 const SUMMARY_MS = 3000
 const LIST_MS = 2000
@@ -20,9 +22,10 @@ function readSeen(): number {
 }
 
 /**
- * Plate log data. A cheap summary is polled all the time (badge for new reads);
- * the list / grouped plates are polled only while the drawer is open and only
- * refetched when the server's version or the filters change.
+ * Plate log data. A cheap summary (badge for new reads) is pushed by the live
+ * stream, or polled while it is down; the list / grouped plates are loaded
+ * only while the drawer is open and only refetched when the server's version
+ * or the filters change.
  */
 export function usePlateLog(open: boolean) {
   const [filters, setFilters] = useState<PlateLogFilters>({})
@@ -68,8 +71,28 @@ export function usePlateLog(open: boolean) {
     }
   }, [])
 
-  // badge + change detection
+  const poll = useShouldPoll()
+  const [pushed, setPushed] = useState<PlatesSummary | null>(null)
+  useLiveTopic("plates", setPushed)
+
+  // badge + change detection from the stream
   useEffect(() => {
+    if (poll || !pushed) return
+    setAvailable(true)
+    const recent = pushed.recent
+    setUnread(recent ? recent.filter((t) => t > seen).length : pushed.new)
+    if (open && (pushed.version !== version.current || fetched.current !== key)) {
+      version.current = pushed.version
+      fetched.current = key
+      loadList().catch(() => {
+        version.current = -1     // retry on the next push
+      })
+    }
+  }, [poll, pushed, open, key, seen, loadList])
+
+  // badge + change detection by polling (stream down)
+  useEffect(() => {
+    if (!poll) return
     let stopped = false
     let timer: number | undefined
     let ctrl: AbortController | null = null
@@ -98,7 +121,7 @@ export function usePlateLog(open: boolean) {
       window.clearTimeout(timer)
       ctrl?.abort()
     }
-  }, [open, key, seen, loadList])
+  }, [open, key, seen, loadList, poll])
 
   useEffect(() => {
     if (open) void loadWatch()

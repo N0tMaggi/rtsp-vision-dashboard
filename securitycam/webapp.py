@@ -8,21 +8,12 @@ from urllib.parse import urlsplit
 from flask import Flask, Response, abort, jsonify, request, send_from_directory
 
 from . import config, deps, state, targets
+from .live import blueprint as live_blueprint
 from .recognition.api import blueprint as recognition_api
+from .status import camera_payload as _camera_payload, status_payload as _status_payload
 from .streaming import gen_frames
 from .validation import ZoneError, parse_lock_id
 from .visuals_api import visuals_bp
-
-
-def _camera_payload(camera_state: state.CameraRuntime) -> dict:
-    return {
-        "id": camera_state.camera_id,
-        "label": camera_state.label,
-        "ip": camera_state.ip,
-        "stream_path": camera_state.stream_path,
-        "has_stream": bool(camera_state.rtsp_url),
-        "source_kind": camera_state.source_kind,   # "rtsp" | "file" | "url" (video analysis)
-    }
 
 
 def _get_camera_state_or_404(camera_id: str) -> state.CameraRuntime:
@@ -30,34 +21,6 @@ def _get_camera_state_or_404(camera_id: str) -> state.CameraRuntime:
     if camera_state is None:
         abort(404)
     return camera_state
-
-
-def _status_payload(camera_state: state.CameraRuntime) -> dict:
-    state.gpu_stats.update(deps.get_gpu_snapshot())
-    return {
-        "camera": _camera_payload(camera_state),
-        "fps": camera_state.stats["fps"],
-        "inference_fps": camera_state.stats["inference_fps"],
-        "last_infer_ms": camera_state.stats["last_infer_ms"],
-        "num_detections": camera_state.stats["num_detections"],
-        "faces": camera_state.stats.get("faces", 0),
-        "classes": camera_state.stats["classes"],
-        "resolution": camera_state.stats["resolution"],
-        "total_frames": camera_state.stats["total_frames"],
-        "last_update": camera_state.stats["last_update"],
-        "yolo_enabled": camera_state.yolo_enabled,
-        "yolo_available": state.YOLO_AVAILABLE,
-        "yolo_model": camera_state.yolo_model_name if state.YOLO_AVAILABLE else None,
-        "available_models": config.AVAILABLE_MODELS,
-        "device": state.DEVICE,
-        "cuda_available": state.CUDA_AVAILABLE,
-        "esp_settings": camera_state.esp_settings,
-        "gpu": state.gpu_stats,
-        "stream_error": camera_state.stream_error,
-        "locked": targets.get_locked(camera_state),
-        "zones": targets.zones_payload(camera_state),
-        "assets": dict(getattr(deps, "asset_status", {}) or {}),
-    }
 
 
 def create_app() -> Flask:
@@ -92,6 +55,7 @@ def create_app() -> Flask:
     from .ops_api import blueprint as ops_blueprint  # persistence, presets, grid overview, PTZ
     app.register_blueprint(ops_blueprint)
     app.register_blueprint(recognition_api)
+    app.register_blueprint(live_blueprint)   # SSE push channel: /api/stream
 
     @app.route("/")
     def index():

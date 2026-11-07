@@ -16,6 +16,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { useCameraStatus } from "@/hooks/use-camera-status"
 import { useEspSettings } from "@/hooks/use-esp-settings"
 import { useEvents } from "@/hooks/use-events"
+import { useLiveStream } from "@/hooks/use-live-stream"
 import { usePlateLog } from "@/hooks/use-plate-log"
 import { useTargets } from "@/hooks/use-targets"
 import { useWorkspace } from "@/hooks/use-workspace"
@@ -81,6 +82,8 @@ export default function App() {
 
   const cameraMap = useMemo(() => new Map(cameras.map((c) => [c.id, c])), [cameras])
   const { activeId, open } = useWorkspace(cameras, defaultId)
+  // one SSE connection per tab feeds status, targets, events, plates, playback, grid and PTZ
+  const liveStream = useLiveStream(activeId)
   const { status, error, refresh } = useCameraStatus(activeId)
   const { settings, update } = useEspSettings(activeId, status?.esp_settings)
   const aiOn = status?.yolo_enabled ?? false
@@ -267,7 +270,7 @@ export default function App() {
                   {video.entry}
                 </div>
                 {ops.viewToggle}
-                <LiveReadout status={status} live={live} />
+                <LiveReadout status={status} live={live} reconnecting={liveStream.state === "reconnecting"} />
                 <button
                   type="button"
                   onClick={() => void snapshot()}

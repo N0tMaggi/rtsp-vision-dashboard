@@ -1,14 +1,30 @@
 import { AnimatePresence, motion } from "motion/react"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { CameraStatus } from "@/lib/types"
 import { RollingNumber } from "./rolling-number"
 
-/** Live readout, top right of the stage. */
-export function LiveReadout({ status, live }: { status: CameraStatus | null; live: boolean }) {
-  return (
-    <div className="flex items-center gap-3 rounded-full border border-border/70 bg-background/70 py-1.5 pl-3 pr-4 text-[13px] backdrop-blur-md">
+/**
+ * Live readout, top right of the stage. While the live connection to the
+ * server is down (the dashboard then falls back to polling) the dot turns grey.
+ */
+export function LiveReadout({
+  status,
+  live,
+  reconnecting = false,
+}: {
+  status: CameraStatus | null
+  live: boolean
+  reconnecting?: boolean
+}) {
+  const on = live && !reconnecting
+  const pill = (
+    <div
+      className="flex items-center gap-3 rounded-full border border-border/70 bg-background/70 py-1.5 pl-3 pr-4 text-[13px] backdrop-blur-md"
+      aria-label={reconnecting ? "Connection to the server lost. Reconnecting…" : undefined}
+    >
       <span className="relative flex size-2">
-        {live && <span className="absolute inset-0 animate-ping rounded-full bg-primary opacity-60" />}
-        <span className={live ? "relative size-2 rounded-full bg-primary" : "relative size-2 rounded-full bg-muted-foreground/50"} />
+        {on && <span className="absolute inset-0 animate-ping rounded-full bg-primary opacity-60" />}
+        <span className={on ? "relative size-2 rounded-full bg-primary" : "relative size-2 rounded-full bg-muted-foreground/50"} />
       </span>
       <span className="text-muted-foreground">{live ? "Live" : "Offline"}</span>
       <span className="tabular-nums">
@@ -16,6 +32,13 @@ export function LiveReadout({ status, live }: { status: CameraStatus | null; liv
         <span className="ml-1 text-muted-foreground">fps</span>
       </span>
     </div>
+  )
+  if (!reconnecting) return pill
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{pill}</TooltipTrigger>
+      <TooltipContent>Reconnecting…</TooltipContent>
+    </Tooltip>
   )
 }
 

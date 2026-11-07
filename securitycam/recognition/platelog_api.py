@@ -93,9 +93,18 @@ def log_summary():
         seen = _float_arg("seen") or 0.0
     except ValueError:
         return _err("invalid_query")
+    return _no_store(jsonify(summary_payload(seen)))
+
+
+def summary_payload(seen: float = 0.0, recent: int = 0) -> dict:
+    """Badge summary (``GET .../summary`` and the live stream).
+
+    ``recent`` > 0 adds the ``first_seen`` times of the newest entries, so a
+    stream client can count unread reads against its own "seen" mark.
+    """
     log = platelog.get_log()
-    return _no_store(jsonify({**log.summary(seen), "enabled": log.enabled,
-                              "max_count": log.max_count, "max_age_days": log.max_age_days}))
+    return {**log.summary(seen, recent), "enabled": log.enabled,
+            "max_count": log.max_count, "max_age_days": log.max_age_days}
 
 
 @blueprint.get("/plates")
