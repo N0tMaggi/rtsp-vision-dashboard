@@ -33,6 +33,10 @@ export interface PlateLogEntry {
   frame_h?: number
   quality?: number
   watch: PlateWatch | null
+  /** "manual" for plates marked by hand on the stage. */
+  source?: "manual"
+  /** Text corrected after the fact (re-read or typed). */
+  edited?: boolean
   /** Search score: 3 exact, 2 OCR-confusion tolerant, 1 near miss. */
   match?: number
   plate_url: string | null

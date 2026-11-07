@@ -210,6 +210,8 @@ def create_app() -> Flask:
     app.register_blueprint(compute_blueprint)
     from .enhance.api import blueprint as enhance_blueprint  # Enhance view: AI upscaling of a frame region
     app.register_blueprint(enhance_blueprint)
+    from .context_api import blueprint as context_blueprint  # right-click menu: tags, solo/hide, manual plates
+    app.register_blueprint(context_blueprint)
     return app
 
 

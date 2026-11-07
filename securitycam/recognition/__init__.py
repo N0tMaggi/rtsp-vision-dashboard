@@ -59,6 +59,7 @@ def track_kwargs(camera_state, model) -> Dict[str, Any]:
                 rt.reentry.reset()
             with rt.lock:
                 rt.track_info.clear()
+                rt.track_epoch += 1          # track-scoped tags / solo must not jump to a reused id
         return {"tracker": tracker}
     except Exception as exc:
         _warn_once("track_kwargs", f"[RECOG] tracker selection failed, using defaults: {exc}")

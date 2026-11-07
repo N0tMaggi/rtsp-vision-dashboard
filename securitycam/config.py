@@ -204,6 +204,8 @@ DEFAULT_ESP_SETTINGS = {
     "known_faces": False,              # label faces from the local gallery (data/faces)
     "face_match_threshold": 0.36,      # SFace cosine similarity needed for a name (OpenCV recommends 0.363)
     "face_detector": "yunet",          # yunet (falls back to haar while missing) | haar
+    "face_auto_ids": True,             # with known_faces: number unknown faces as persistent "Face #n" identities
+    "face_cluster_threshold": 0.45,    # SFace cosine needed to count as the same unknown face (stricter than a name match)
     "plates": False,                   # read license plates on vehicles
     "pets_show": True,
     "pets_ignore_alarms": True,        # read by the alarm package via recognition.is_pet()

@@ -49,6 +49,7 @@ NUMERIC_KEYS: dict[str, tuple[float, float, str]] = {
     "loiter_seconds": (5, 3600, "int"),
     "abandoned_seconds": (5, 600, "int"),
     "face_match_threshold": (0.2, 0.8, "float"),
+    "face_cluster_threshold": (0.3, 0.8, "float"),
 }
 
 

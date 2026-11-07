@@ -160,7 +160,8 @@ def draw_faces(ctx: FrameContext, frame, faces: Sequence[Tuple[int, int, int, in
         if hit is not None and hit.name:
             color, text = ctx.s.color_known, hit.name.upper()
         elif hit is not None and hit.recognizable:
-            color, text = ctx.s.color_unknown, "UNKNOWN"
+            color = ctx.s.color_unknown
+            text = f"FACE #{hit.face_uid}" if hit.face_uid is not None else "UNKNOWN"
         else:
             color, text = settings.color_face, "FACE"
         corners = R._box_geometry(fx, fy, fx + fw, fy + fh, "corner")[0]

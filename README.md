@@ -23,6 +23,8 @@ SecurityCam is a modular RTSP camera dashboard built with Flask, OpenCV, and YOL
 8. [Configuration](#configuration)
 9. [API Reference](#api-reference)
 10. [ESP Features and Controls](#esp-features-and-controls)
+    - [Context menu](#context-menu), [Tags](#tags), [Manual plate annotation](#manual-plate-annotation), [Keyboard shortcuts](#keyboard-shortcuts)
+    - [Automatic face ids](#automatic-face-ids)
     - [Video Analysis](#video-analysis)
     - [Enhance](#enhance)
 11. [Model Management](#model-management)
@@ -361,7 +363,7 @@ Real pan/tilt/zoom needs the optional package:
 pip install onvif-zeep
 ```
 
-Without it the **PTZ** menu category only shows this hint. ONVIF logs in with the camera account from the camera config (Tapo: enable the camera account in the Tapo app; ONVIF runs on port 2020). Turn on **PTZ Mode** to get an on-screen pad, arrow keys (Page Up/Down zoom if supported) and right-click "center this point". The login only happens when you open the PTZ panel or turn PTZ Mode on; failed logins back off from 60 s up to 30 min (network errors 5 s up to 2 min), and PTZ waits while the RTSP login of the same camera is failing, so a wrong password cannot lock the account. A held move stops automatically if the browser stops refreshing it.
+Without it the **PTZ** menu category only shows this hint. ONVIF logs in with the camera account from the camera config (Tapo: enable the camera account in the Tapo app; ONVIF runs on port 2020). Turn on **PTZ Mode** to get an on-screen pad, arrow keys (Page Up/Down zoom if supported) and "center this point" (context menu **Aim Camera Here**, or `Alt`+right-click directly). The login only happens when you open the PTZ panel or turn PTZ Mode on; failed logins back off from 60 s up to 30 min (network errors 5 s up to 2 min), and PTZ waits while the RTSP login of the same camera is failing, so a wrong password cannot lock the account. A held move stops automatically if the browser stops refreshing it.
 
 | Variable | Required | Default | Description |
 |---|---|---:|---|
@@ -538,6 +540,90 @@ The dashboard includes the complete advanced ESP feature set.
 - face zoom scale
 - chams opacity
 - face blur strength
+
+### Context menu
+
+Right-click the video (or long-press on touch) for a menu at the cursor. It is keyboard accessible
+(arrows / `Home` / `End`, `Enter`, typing jumps to an item, `→` opens a panel, `←` / `Esc` back, `Esc` closes),
+closes on a click outside, stays on-screen and works while zoomed. Hit-testing is the same as a left click.
+
+| Right-click on | Items |
+|---|---|
+| any target | **Lock / Unlock**, **Follow**, **Only Show This** / Show Everyone, **Hide This**, **Add Tag…** (inline input, suggestions from tags already in use, 7 colors; shows the current tags with ×), **Remove Tag…**, **Copy Info** (class, id, name / face id, plate, tags, confidence, distance, dwell, first seen, camera, box) |
+| a person | **Add Face To People…**: grabs the face of exactly that person (needs Known Faces and a visible face), shows the closest gallery match, pick an existing person or type a new name (uses the gallery API) |
+| a vehicle | **Read Plate…**: plate OCR on that vehicle right now (the result also feeds the track's vote; *Save To Log* stores it as a manual entry). **Mark Plate…**: see below |
+| empty video | **Draw Zone Here** / **Draw Tripwire** (the shape starts at the clicked point, the next click places the other corner / end), **Aim Camera Here** (PTZ Mode only), **Mark Plate…** (`Freeze & Mark Plate…` on live cameras), **Snapshot**, **Pause / Play** (video files), **Show Everyone** while a view filter is set |
+
+`Alt`+right-click still aims a PTZ camera immediately (PTZ Mode on).
+
+**Solo / hidden** are per camera and *visual only*: the ESP overlay, hover, info cards and radar leave out
+the other targets, while alarms, zone counts and recordings keep seeing everybody. A chip under the header
+(`Solo: person #12 ×`, `2 Hidden ▾` with a list to show them again) clears it. Solo / hidden follow the
+target's identity (person / face id / plate), so they survive a re-entry with a new track id. They are not
+saved across restarts.
+
+### Tags
+
+Tags (label up to 24 characters + color) are attached to the target's most durable identity:
+
+| Identity | When | Lifetime |
+|---|---|---|
+| known person (`p:<id>`) | the face was recognized (Known Faces) | saved, all cameras, survives restarts |
+| automatic face id (`f:<n>`, "Face #n") | an unknown face that got a number | saved, survives restarts |
+| plate (`v:<plate>`) | the vehicle's plate has at least 3 reads (OCR-confusion folded) | saved, survives restarts |
+| track (ReID re-entry id) | nothing better known yet | this session, expires with the track |
+
+A tag added to a plain track *follows* the target: once its face is recognized or its plate confirmed, the
+tags move to that identity and come back whenever that person / car shows up again. While a track lives its
+tags stay visible even if recognition changes its mind; a corrected plate reading carries the tags along
+(a re-recognized *person* never re-labels anyone else). Tags appear as colored `#TAG` runs in the ESP label
+and as chips in the info card and in the menu. Identity tags are stored in the `tags` section of
+`data/state.json` (exported / imported with Backup).
+
+API: `GET /api/tags` (catalog with counts + palette), `POST|DELETE /api/cameras/<id>/targets/<target>/tags`
+(`{"label", "color"?}` / `{"label"}`; the response names the owner: person / face / plate / track),
+`GET|POST /api/cameras/<id>/view` (`{"action": "solo"|"unsolo"|"hide"|"unhide"|"clear", "target_id"?}`).
+`/targets` (and the live `targets` event) carry per target `tags`, `identity` (`name`, `person_id`,
+`face_id`, `plate`, `face`) and `hidden`, plus the camera's `view` (all additive).
+
+### Manual plate annotation
+
+**Mark Plate…** pauses a playing video (live cameras: freezes the current frame) and shows that exact
+still frame; the stage switches into a draw mode (zoom / pan keep working, `Esc` leaves). Drag a box around
+the plate: the server crops the box from the frozen frame (kept in memory under a random id for 15 min, so
+the coordinates always match what you see), runs the plate OCR on 15+ variants (3 paddings × 5 small
+rotations plus a detector-refined box) and shows the best text with its confidence and the alternatives.
+Correct it or type the plate if the reader fails, then **Confirm** (`Enter`): a Plate Log entry with
+`source: "manual"` (crop, vehicle and frame images) is created and linked to the vehicle whose box contains
+the plate; that track's vote is set to the confirmed text so the ESP label shows it. Manual entries carry a
+**Manual** badge in the Plate Log. In the plate viewer, **Re-Read Plate** runs the same multi-variant OCR on a
+stored crop and the pencil corrects the text (`edited: true`).
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/cameras/<id>/freeze` | Freeze the current frame → `{id, w, h, url, vehicles}` |
+| `GET` | `/api/cameras/<id>/freeze/<id>.jpg` | The frozen frame |
+| `POST` | `/api/cameras/<id>/manual_plate/read` | `{freeze_id, box}` (normalized) → `{text, conf, candidates, crop, vehicle}` |
+| `POST` | `/api/cameras/<id>/manual_plate` | `{freeze_id, box, plate, ocr_conf?}` → manual plate-log entry |
+| `POST` | `/api/cameras/<id>/targets/<target>/read_plate` | Read Plate on a live vehicle |
+| `POST` | `/api/cameras/<id>/targets/<target>/face` | Face of one person as a gallery candidate (then `POST /api/recognition/people {name, candidate_id}`) |
+| `POST` | `/api/recognition/platelog/<entry>/reocr` | Multi-variant OCR on the stored crop (no change) |
+| `PATCH` | `/api/recognition/platelog/<entry>` | `{plate}`: correct the text |
+
+### Keyboard shortcuts
+
+| Key | Action |
+|---|---|
+| `M` / `Insert` | ESP menu |
+| `V` / `Z` / `T` | Select / draw zone / draw tripwire |
+| `F` | Follow the locked target |
+| `+` / `-` / `0` | Zoom in / out / reset |
+| `S` | Snapshot |
+| `E` / `P` | Events drawer / Plate Log |
+| `G`, `1`–`9` | Grid / single view, open a camera |
+| Right-click / long-press | Context menu (`Alt`+right-click: aim the PTZ camera) |
+| `Space` / `K`, `J` / `L`, `,` / `.`, `[` / `]` | Video files: play / pause, ±10 s, frame step, speed |
+| `Esc` | Close menus and panels, cancel drawing / Mark Plate |
 
 ## Alarms and Events
 
@@ -930,6 +1016,32 @@ Package `securitycam/recognition/`, UI category **Recognition** in the ESP menu.
 | Optimize for GPU | Ultralytics TensorRT export (FP16) into `models/<model>.engine`, used automatically afterwards | Installed automatically by the start scripts when an NVIDIA GPU is found (`nvidia-smi` on PATH); opt out with `SECURITYCAM_INSTALL_TENSORRT=0`. Manual: `python -m pip install tensorrt onnx onnxslim onnxscript onnx-graphsurgeon polygraphy nvidia-modelopt lief` |
 
 API (prefix `/api/recognition`): `GET /status`, `GET|POST /people` (multipart `name` + `photo`, or JSON `{name, candidate_id}`), `PATCH|DELETE /people/<id>`, `GET /people/<id>/thumb`, `GET /cameras/<id>/face_candidates`, `GET|DELETE /cameras/<id>/plates`, `GET /models`, `POST|DELETE /models/<model>/engine`.
+
+### Automatic face ids
+
+With **Known Faces** on, every face the gallery does not recognize is numbered automatically
+(`face_auto_ids`, default on; module `securitycam/recognition/unknown_faces.py`, runs in the recognition
+worker, never in the render path). The ESP then shows `FACE #7` instead of `UNKNOWN`, and the info card /
+menu show the face id of the person.
+
+- Each unknown face already has an SFace embedding; it is matched against every identity's running centroid
+  and up to 6 stored samples (best cosine). `face_cluster_threshold` (default 0.45, range 0.3–0.8, slider
+  *Same Face*) is stricter than the name threshold so two strangers rarely share a number. A face on a track
+  that already has an id gets 0.08 slack.
+- A new identity starts as *pending* and only gets a number after 3 consistent sightings within 20 s.
+- Only faces at least 48 px wide, with a YuNet score >= 0.8 and a sharp crop (Laplacian variance >= 20)
+  update a centroid or add a sample (kept diverse); smaller / blurry faces can still be matched.
+- Two identities whose centroids converge (similarity >= threshold + 0.15) are merged automatically into the
+  older number; tags follow.
+- At most 300 identities; ones seen in only one sighting are pruned after 3 days.
+
+Storage: `data/faces/unknown/index.json` (numbering, first / last seen, sightings) and
+`data/faces/unknown/<n>/{samples.npy,centroid.npy,thumb.jpg}`. The **Recognition → Unknown Faces** list shows
+thumbnails, sightings and last seen with **Name This Person** (moves the samples into the known gallery;
+an existing name adds samples to that person; tags move along), **Merge into…** and **Delete**.
+
+API (prefix `/api/recognition/unknown`): `GET ""`, `GET /<n>/thumb`, `POST /<n>/name {name}`,
+`POST /<n>/merge {into}`, `DELETE /<n>`.
 
 ### License Plate Log
 

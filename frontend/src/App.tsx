@@ -254,6 +254,9 @@ export default function App() {
                 rightInset={rightInset}
                 onAimAt={ops.onAimAt}
                 bottomInset={video.bottomInset}
+                onSnapshot={() => void snapshot()}
+                video={video.stageVideo}
+                notify={(n) => pushToast({ key: `ctx-${Date.now()}`, type: "info", title: n.title, detail: n.detail, tone: n.tone })}
               />
               </motion.div>
               )}

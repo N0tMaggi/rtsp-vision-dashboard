@@ -20,6 +20,7 @@ from . import faces as F
 from . import gallery
 from . import plates as P
 from . import platelog
+from . import unknown_faces
 from .common import (PERSON_CLASS, FaceHit, RecogRuntime, RecogSettings, TrackInfo, is_vehicle,
                      runtime)
 
@@ -166,7 +167,7 @@ def recognize_frame(frame: np.ndarray, threshold: float) -> Optional[List[Tuple[
         row = rows[i]
         x, y, w, h = (int(v) for v in row[:4])
         recognizable = w >= F.MIN_RECOGNIZABLE_PX
-        name = pid = None
+        name = pid = emb = None
         score = 0.0
         if recognizable:
             emb = F.embed(frame, row)
@@ -175,7 +176,7 @@ def recognize_frame(frame: np.ndarray, threshold: float) -> Optional[List[Tuple[
             else:
                 name, pid, score = gallery.match(emb, threshold)
         out.append((row, FaceHit(box=(x, y, w, h), name=name, person_id=pid, score=score,
-                                 recognizable=recognizable)))
+                                 recognizable=recognizable, embedding=emb)))
     return out
 
 
@@ -186,14 +187,30 @@ def run_faces(rt: RecogRuntime, s: RecogSettings, frame: np.ndarray, dets: List[
         return
     rt.errors.pop("faces", None)
     hits = [hit for _, hit in found]
+    owners = {id(hit): face_owner(hit.box, dets) for hit in hits}
+    if s.face_auto_ids:          # unknown faces -> persistent "Face #n" identities (unknown_faces.py)
+        def hint(hit):
+            tid = owners.get(id(hit))
+            ti = rt.track_info.get(tid) if tid is not None else None
+            return ti.face_uid if ti is not None else None
+        try:
+            unknown_faces.label_hits(found, frame, s.face_cluster_threshold, hint)
+        except Exception as exc:
+            rt.errors["face_ids"] = str(exc)
+    now = time.monotonic()
     with rt.lock:
         rt.faces = hits
         rt.faces_ts = ts
         rt.faces_shape = frame.shape[:2]
         for hit in hits:
+            tid = owners.get(id(hit))
+            if tid is not None and hit.recognizable:
+                ti = _info(rt, tid)
+                ti.face_seen = now
+                if hit.face_uid is not None:
+                    ti.face_uid = hit.face_uid
             if not hit.name:
                 continue
-            tid = face_owner(hit.box, dets)
             if tid is None:
                 continue
             ti = _info(rt, tid)

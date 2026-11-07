@@ -550,6 +550,81 @@ class PlateLog:
             except Exception as exc:
                 print(f"[PLATES] Watchlist alarm failed: {exc.__class__.__name__}: {exc}")
 
+    # ------------------------------------------------------------------ manual entries (stage "Mark Plate")
+    def add_manual(self, camera_id: str, plate: Any, frame: np.ndarray, plate_box, vehicle_box,
+                   track_id: Optional[int] = None, vehicle: str = "vehicle", ocr_conf: float = 0.0,
+                   now: Optional[float] = None) -> dict:
+        """Log a plate the user marked (and confirmed / typed) by hand; written synchronously.
+
+        ``plate_box`` / ``vehicle_box`` are frame pixels. The entry carries
+        ``source: "manual"`` and the same images as automatic reads.
+        """
+        if not CAMERA_RE.match(camera_id or ""):
+            raise ValueError("invalid_camera")
+        text = normalize(plate)
+        if not 2 <= len(text) <= 16:
+            raise ValueError("invalid_plate")
+        if frame is None or getattr(frame, "ndim", 0) != 3:
+            raise ValueError("no_frame")
+        self._ensure_loaded()
+        wall = time.time() if now is None else now
+        entry_id = time.strftime("%Y%m%d-%H%M%S", time.localtime(wall)) + "-" + secrets.token_hex(3)
+        d = self.entry_dir(camera_id, entry_id)
+        h, w = frame.shape[:2]
+        pbox = _clip_box(plate_box, w, h)
+        vbox = _clip_box(vehicle_box, w, h)
+        d.mkdir(parents=True, exist_ok=True)
+        vcrop, cbox = vehicle_crop(frame, vbox)
+        images = {
+            "plate": _write_jpeg(d / "plate.jpg", plate_crop(frame, pbox), 94),
+            "vehicle": _write_jpeg(d / "vehicle.jpg", vcrop, 88),
+            "frame": _write_jpeg(d / "frame.jpg", frame_image(frame), 85),
+        }
+        e = {
+            "id": entry_id, "camera": camera_id, "plate": text, "plate_key": fold(text),
+            "conf": 1.0, "ocr_conf": round(max(0.0, min(1.0, float(ocr_conf or 0.0))), 3), "reads": 1,
+            "first_seen": wall, "last_seen": wall,
+            "track_id": int(track_id) if track_id is not None else None, "vehicle": str(vehicle or "vehicle")[:24],
+            "source": "manual", "watch": None, "images": images, "frame_w": w, "frame_h": h, "quality": 1.0,
+            "plate_box": _norm_box(pbox, w, h), "vehicle_box": _norm_box(vbox, w, h),
+            "crop_box": _norm_box(cbox, w, h), "image_ts": wall,
+        }
+        watch = self.watch_match(text)
+        if watch:
+            e["watch"] = {"id": watch["id"], "note": watch["note"], "plate": watch["plate"]}
+        with self._lock:
+            self._entries[entry_id] = e
+            self.version += 1
+            snapshot = dict(e)
+            if len(self._entries) > self.max_count:
+                self._retention_locked()
+        self._db_upsert(snapshot)
+        if watch and self.on_watch_hit is not None:
+            try:
+                self.on_watch_hit(snapshot, watch)
+            except Exception as exc:
+                print(f"[PLATES] Watchlist alarm failed: {exc.__class__.__name__}: {exc}")
+        return snapshot
+
+    def set_plate(self, entry_id: str, plate: Any) -> Optional[dict]:
+        """Correct the text of an entry (after a re-read or by hand); marks it ``edited``."""
+        text = normalize(plate)
+        if not 2 <= len(text) <= 16:
+            raise ValueError("invalid_plate")
+        if not ID_RE.match(entry_id or ""):
+            return None
+        self._ensure_loaded()
+        with self._lock:
+            e = self._entries.get(entry_id)
+            if e is None:
+                return None
+            e.update(plate=text, plate_key=fold(text), edited=True)
+            self._forget_tracks_locked({entry_id})     # later automatic reads start a fresh entry
+            self.version += 1
+            snapshot = dict(e)
+        self._db_upsert(snapshot)
+        return snapshot
+
     # ------------------------------------------------------------------ reads (HTTP)
     def get(self, entry_id: str) -> Optional[dict]:
         if not ID_RE.match(entry_id or ""):

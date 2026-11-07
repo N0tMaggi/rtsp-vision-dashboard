@@ -3,6 +3,7 @@ import { AnimatePresence, motion, useSpring, useTransform, type MotionValue } fr
 import type { CameraPose, NBox, Target } from "@/lib/types"
 import { useVisualPrefs } from "@/lib/visual-prefs"
 import { cn } from "@/lib/utils"
+import { TagChips } from "./stage-context"
 
 /** The parts of useViewTransform() the HUD needs. */
 export interface ViewLike {
@@ -257,6 +258,16 @@ function TargetCard({
         <span className="text-muted-foreground">#{target.id}</span>
         <span className="ml-auto tabular-nums text-muted-foreground">{Math.round(target.conf * 100)}%</span>
       </div>
+      {(target.identity?.name || target.identity?.face_id !== undefined || target.tags?.length) && (
+        <div className="space-y-1 border-b border-white/8 px-3 py-1.5">
+          {target.identity?.name ? (
+            <div className="truncate text-[11px] font-semibold text-[#7ee0a1]">{target.identity.name}</div>
+          ) : target.identity?.face_id !== undefined ? (
+            <div className="text-[11px] font-semibold text-[#ff8a80]">Face #{target.identity.face_id}</div>
+          ) : null}
+          <TagChips tags={target.tags} />
+        </div>
+      )}
       {locked && (
         <div className="flex items-center gap-1.5 bg-primary/12 px-3 py-1 text-[10px] font-semibold uppercase tracking-widest text-primary">
           <span className="size-1.5 animate-pulse rounded-full bg-primary" /> Locked

@@ -31,6 +31,18 @@ export function PlateBadge({ plate, size = "md", className }: { plate: string; s
   )
 }
 
+/** Plate-log entry the user marked by hand (stage "Mark Plate" / "Read Plate"). */
+export function ManualBadge({ edited }: { edited?: boolean }) {
+  return (
+    <span
+      title={edited ? "Marked by hand, text corrected" : "Marked by hand"}
+      className="inline-flex items-center rounded-full border border-primary/50 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wider text-primary"
+    >
+      Manual
+    </span>
+  )
+}
+
 export function WatchFlag({ note }: { note?: string }) {
   return (
     <span
