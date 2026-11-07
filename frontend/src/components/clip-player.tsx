@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { Download, Pause, Play, Trash2, X } from "lucide-react"
-import { KIND_LABEL, type AlarmEvent } from "@/lib/alerts"
+import { kindLabel, type AlarmEvent } from "@/lib/alerts"
 import { cn } from "@/lib/utils"
 
 const spring = { type: "spring", stiffness: 380, damping: 34 } as const
@@ -68,7 +68,7 @@ export function ClipPlayer({
             className="flex max-h-full w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-border bg-card shadow-[0_32px_120px_-24px_rgba(0,0,0,0.8)]"
           >
             <div className="flex items-center gap-3 border-b border-border px-4 py-3">
-              <span className="rounded-full bg-destructive/15 px-2 py-0.5 text-xs text-destructive">{KIND_LABEL[event.kind]}</span>
+              <span className="rounded-full bg-destructive/15 px-2 py-0.5 text-xs text-destructive">{kindLabel(event.kind)}</span>
               <p className="min-w-0 flex-1 truncate text-sm">
                 {event.message}
                 <span className="ml-2 text-muted-foreground">

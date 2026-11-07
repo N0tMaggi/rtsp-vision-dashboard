@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react"
 import { AnimatePresence, motion } from "motion/react"
-import { Box, Fingerprint, Microchip, Palette, Radar, Route, ScanFace, Siren, SquareDashed, Trash2, X } from "lucide-react"
+import { AudioLines, Box, Fingerprint, Microchip, Palette, Radar, Route, ScanFace, Siren, SquareDashed, Trash2, X } from "lucide-react"
 import { AlertsPanel } from "@/components/alerts-panel"
 import { FaceImagePicker } from "@/components/face-image-picker"
 import { ComputePanel } from "@/components/compute-panel"
 import { OverlaysPanel } from "@/components/overlays-panel"
 import { RecognitionPanel } from "@/components/recognition-panel"
+import { SoundPanel } from "@/components/sound-panel" // Sound ESP
 import { ModelPicker } from "@/components/model-picker"
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
@@ -37,6 +38,7 @@ const CATEGORIES = [
   { id: "alarms", label: "Alarms", icon: Siren },
   { id: "overlays", label: "Overlays", icon: Radar },
   { id: "recognition", label: "Recognition", icon: Fingerprint },
+  { id: "sound", label: "Sound", icon: AudioLines }, // Sound ESP
   { id: "style", label: "Colors", icon: Palette },
   { id: "compute", label: "Compute", icon: Microchip },
 ] as const
@@ -327,6 +329,8 @@ function CategoryBody({
           onUpdate={onUpdate}
         />
       )
+    case "sound": // Sound ESP
+      return <SoundPanel settings={settings} onUpdate={onUpdate} />
     case "compute":
       return <ComputePanel cameraId={cameraId} />
     case "style":

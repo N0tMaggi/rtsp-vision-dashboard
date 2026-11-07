@@ -25,6 +25,8 @@ YOLO_REF: Dict[str, Dict[str, float]] = {
 SMALL_REF: Dict[str, Dict[str, float]] = {
     "faces": {"npu": 5.5, "igpu": 3.1, "cpu": 5.0},
     "plates": {"igpu": 3.1, "cpu": 5.7},
+    # Sound ESP: YAMNet, one 0.975 s window (measured with OpenVINO 2026.4)
+    "sound": {"npu": 1.6, "igpu": 1.5, "cpu": 2.6},
 }
 CHOPPY_MS = 66.0        # below ~15 inferences per second detection looks choppy
 SLOW_MS = 33.0

@@ -42,6 +42,10 @@ def _auto_device(workload: str) -> Dict[str, str]:
         return {"device": "cpu", "label": "CPU (PyTorch)"}
     if workload == "faces":
         return {"device": "cpu", "label": "CPU (OpenCV)"}
+    if workload == "sound":     # Sound ESP (securitycam/audio)
+        from ..audio.classifier import auto_label
+
+        return auto_label()
     return {"device": "cpu", "label": "CPU (onnxruntime / OpenCV)"}
 
 

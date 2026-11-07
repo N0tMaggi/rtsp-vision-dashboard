@@ -163,6 +163,14 @@ ASSETS = {
         "global_mobile_vit_v2_ocr_config.yaml",
         "https://github.com/ankandrew/cnn-ocr-lp/releases/download/arg-plates/global_mobile_vit_v2_ocr_config.yaml",
     ),
+    # --- Sound ESP (securitycam/audio) ---
+    # YAMNet (Google, Apache-2.0): AudioSet 521-class sound classifier, TFLite Task Library build
+    # (waveform in, class map embedded); read directly by OpenVINO
+    "sound_yamnet": (
+        "yamnet_classification.tflite",
+        "https://storage.googleapis.com/download.tensorflow.org/models/tflite/task_library/"
+        "audio_classification/android/lite-model_yamnet_classification_tflite_1.tflite",
+    ),
 }
 _ASSET_RETRY_S = 60.0
 _asset_lock = threading.Lock()

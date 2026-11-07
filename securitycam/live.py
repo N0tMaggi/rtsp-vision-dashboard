@@ -17,6 +17,7 @@ events     ``/api/events?limit=300``                        on change
 plates     ``/api/recognition/platelog/summary`` + recent   on change
 overview   ``/api/overview`` (only with ``overview=1``)     ~1 Hz
 ptz        ``/api/cameras/<id>/ptz``                        on change, 2.5 Hz while moving
+sound      ``/api/sound/<id>`` (only while sound is on)      4 Hz (Sound ESP, securitycam/audio)
 =========  ==============================================  ==========================
 
 A topic is only sent when its payload changed (volatile fields such as
@@ -247,8 +248,24 @@ def _ptz_topic(cs) -> Topic:
     return Topic("ptz", interval, poll)
 
 
+# --- Sound ESP (securitycam/audio): levels / spectrogram / labels, only while sound is on ---
+SOUND_S = 0.25
+SOUND_IDLE_S = 1.0
+
+
+def _sound_topic(cs) -> Topic:
+    def payload():
+        from .audio import live_payload
+        return live_payload(cs)
+
+    return Topic("sound", lambda: SOUND_S if cs.esp_settings.get("sound") else SOUND_IDLE_S,
+                 lambda: _SNAPSHOTS.get(("sound", cs.camera_id), 0.2, payload))
+# --- end Sound ESP ---
+
+
 def build_topics(cs, overview: bool) -> list[Topic]:
     topics = [_status_topic(cs), _targets_topic(cs), _playback_topic(cs), _events_topic(), _plates_topic(), _ptz_topic(cs)]
+    topics.append(_sound_topic(cs))   # Sound ESP
     if overview:
         topics.append(_overview_topic())
     return topics

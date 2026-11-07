@@ -507,7 +507,7 @@ class ApiTests(ComputeTestBase):
         r = self.client.get("/api/compute")
         self.assertEqual(r.status_code, 200)
         d = r.get_json()
-        self.assertEqual({w["id"] for w in d["workloads"]}, {"yolo", "faces", "plates"})
+        self.assertEqual({w["id"] for w in d["workloads"]}, {"yolo", "faces", "plates", "sound"})
         self.assertFalse(d["non_default"])
         self.assertEqual({c["id"] for c in d["cameras"]} >= {"front", "garage"}, True)
         yolo = next(w for w in d["workloads"] if w["id"] == "yolo")

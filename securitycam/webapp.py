@@ -214,6 +214,8 @@ def create_app() -> Flask:
     app.register_blueprint(context_blueprint)
     from .face_masks import blueprint as face_masks_blueprint  # custom face-cover images
     app.register_blueprint(face_masks_blueprint)
+    from .audio.api import blueprint as sound_blueprint  # Sound ESP: audio levels, labels, sound alarms
+    app.register_blueprint(sound_blueprint)
     return app
 
 

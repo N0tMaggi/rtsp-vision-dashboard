@@ -9,6 +9,7 @@ import { useStageContext, type Notice } from "./stage-context"
 import { StageToolbar, type Tool } from "./stage-toolbar"
 import { StageVisuals } from "./stage-visuals"
 import { CrosshairOverlay } from "./crosshair-overlay"
+import { SoundHud } from "./sound-hud" // Sound ESP
 
 type Phase = "idle" | "connecting" | "live" | "error"
 
@@ -36,6 +37,8 @@ interface Props {
   onSnapshot?: () => void
   video?: { playing: boolean | null; toggle: () => void } | null
   notify?: (n: Notice) => void
+  /** Sound ESP: the camera's `sound` setting (shows the on-stage audio HUD). */
+  soundOn?: boolean
 }
 
 // Free area between header (~72px) and telemetry bar (~44px); the video is fitted inside.
@@ -487,6 +490,7 @@ export function Stage(props: Props) {
           {lineDraft && <TripwireDraft line={lineDraft} aspect={frameW && frameH ? frameW / frameH : 16 / 9} />}
         </svg>
       </motion.div>
+      {loaded && <SoundHud cameraId={camera?.id} on={Boolean(props.soundOn)} />}
       {loaded && <CrosshairOverlay view={view} width={rect.width} height={rect.height} targets={aiOn ? list : []} lockedId={lockedId} />}
       {loaded && aiOn && (
         <StageVisuals

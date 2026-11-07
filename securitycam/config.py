@@ -215,6 +215,8 @@ DEFAULT_ESP_SETTINGS = {
     "color_pet": "#ff9f43",
     "color_known": "#7ee0a1",
     "color_unknown": "#ff5a5a",
+    # --- Sound ESP (securitycam/audio): camera / video audio levels, labels, sound alarms ---
+    "sound": False,                    # opt-in; ffmpeg only runs while on AND the camera is on screen
 }
 
 

@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
-import { Film, Footprints, Luggage, RectangleHorizontal, Siren, SquareDashed, Trash2, X } from "lucide-react"
-import { KIND_LABEL, type ActiveAlarm, type AlarmEvent, type EventKind } from "@/lib/alerts"
+import { AudioLines, Film, Footprints, Luggage, RectangleHorizontal, Siren, SquareDashed, Trash2, X } from "lucide-react"
+import { kindLabel, type ActiveAlarm, type AlarmEvent, type EventKind } from "@/lib/alerts"
+import { isSoundKind, soundKindIcon } from "@/lib/sound" // Sound ESP
 import type { Camera } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { formatDay, formatTime } from "./clip-player"
@@ -79,8 +80,12 @@ export function EventsDrawer({
   onDelete: (e: AlarmEvent) => void
 }) {
   const [camera, setCamera] = useState<string>("all")
+  const [soundOnly, setSoundOnly] = useState(false) // Sound ESP: sound event list
   const labels = useMemo(() => new Map(cameras.map((c) => [c.id, c.label])), [cameras])
-  const list = camera === "all" ? events : events.filter((e) => e.camera === camera)
+  const hasSound = useMemo(() => events.some((e) => isSoundKind(e.kind)), [events])
+  const list = (camera === "all" ? events : events.filter((e) => e.camera === camera)).filter(
+    (e) => !soundOnly || isSoundKind(e.kind),
+  )
   const groups = useMemo(() => {
     const out: { day: string; items: AlarmEvent[] }[] = []
     for (const e of list) {
@@ -112,6 +117,22 @@ export function EventsDrawer({
               Events
               <span className="ml-2 text-xs text-muted-foreground">{list.length}</span>
             </h2>
+            {(hasSound || soundOnly) && (
+              <button
+                type="button"
+                onClick={() => setSoundOnly((v) => !v)}
+                aria-pressed={soundOnly}
+                aria-label="Show sound events only"
+                title="Sound events only"
+                className={cn(
+                  "flex items-center gap-1 rounded-full px-2.5 py-1 text-xs transition-colors duration-200",
+                  soundOnly ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                )}
+              >
+                <AudioLines className="size-3.5" />
+                Sound
+              </button>
+            )}
             {active.length > 0 && (
               <span className="flex items-center gap-1.5 rounded-full bg-destructive/15 px-2.5 py-1 text-xs text-destructive">
                 <span className="relative flex size-1.5">
@@ -162,7 +183,11 @@ export function EventsDrawer({
           )}
 
           <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-            {list.length === 0 ? (
+            {list.length === 0 && soundOnly ? (
+              <p className="px-1 py-6 text-xs leading-relaxed text-muted-foreground">
+                No sound events. Arm a sound in the ESP menu under Sound - audio is analysed locally and never stored.
+              </p>
+            ) : list.length === 0 ? (
               <p className="px-1 py-6 text-xs leading-relaxed text-muted-foreground">
                 No events yet. Add an alarm rule to a zone, arm a tripwire or turn on Abandoned Objects in the ESP menu
                 under Alarms. Every alarm shows up here with a clip.
@@ -218,7 +243,7 @@ function EventRow({
   onPlay: () => void
   onDelete: () => void
 }) {
-  const Icon = KIND_ICON[event.kind] ?? Siren
+  const Icon = isSoundKind(event.kind) ? soundKindIcon(event.kind) : (KIND_ICON[event.kind] ?? Siren)
   const recording = event.clip.status === "recording"
   return (
     <div className="group relative py-1.5">
@@ -244,7 +269,7 @@ function EventRow({
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Icon className="size-3.5" />
-            {KIND_LABEL[event.kind]}
+            {kindLabel(event.kind)}
             <span className="ml-auto tabular-nums">{formatTime(event.ts)}</span>
           </span>
           <span className="mt-0.5 block truncate text-sm">{event.source_label}</span>
