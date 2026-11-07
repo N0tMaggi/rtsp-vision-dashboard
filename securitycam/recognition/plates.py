@@ -30,11 +30,32 @@ def _ort_available() -> bool:
 
 
 class _Net:
-    """Single-input/single-output ONNX model via cv2.dnn, falling back to onnxruntime."""
+    """Single-input/single-output ONNX model via onnxruntime when installed, else cv2.dnn.
+
+    onnxruntime is preferred: OpenCV 5's DNN module fails on the plate
+    detector's built-in NMS (``gather2_layer ... indices are outside of range``)
+    for most crops, which silently dropped the majority of plates.
+    """
 
     def __init__(self, path: str, dummy: np.ndarray, check_finite: bool = False):
         self.backend = None
         self._net = self._sess = None
+        err = ""
+        if _ort_available():
+            try:
+                import onnxruntime as ort
+
+                opts = ort.SessionOptions()
+                opts.log_severity_level = 3          # no warnings spam in the server log
+                sess = ort.InferenceSession(path, sess_options=opts, providers=["CPUExecutionProvider"])
+                name = sess.get_inputs()[0].name
+                out = np.asarray(sess.run(None, {name: dummy})[0])
+                if check_finite and not np.all(np.isfinite(out)):
+                    raise ValueError("non-finite output")
+                self._sess, self._in, self.backend = sess, name, "onnxruntime"
+                return
+            except Exception as exc:                  # fall back to OpenCV below
+                err = str(exc).splitlines()[0][:160]
         try:
             net = cv2.dnn.readNet(path)
             net.setInput(dummy)
@@ -44,15 +65,8 @@ class _Net:
             self._net, self.backend = net, "opencv"
             return
         except (cv2.error, ValueError) as exc:
-            err = str(exc).splitlines()[0][:160]
-        if _ort_available():
-            import onnxruntime as ort
-
-            self._sess = ort.InferenceSession(path, providers=["CPUExecutionProvider"])
-            self._in = self._sess.get_inputs()[0].name
-            self.backend = "onnxruntime"
-            return
-        raise RuntimeError(f"OpenCV DNN cannot run {path}: {err}")
+            err = err or str(exc).splitlines()[0][:160]
+        raise RuntimeError(f"Cannot run {path}: {err}")
 
     def __call__(self, x: np.ndarray) -> np.ndarray:
         if self._net is not None:
@@ -124,8 +138,10 @@ class PlateReader:
         x, r, (dw, dh) = self._letterbox(img)
         try:
             pred = self.det(np.ascontiguousarray(x))
-        except cv2.error:
-            return []    # end-to-end NMS raises on frames without any plate in OpenCV DNN
+        except Exception:
+            return []    # OpenCV DNN's end-to-end NMS raises on many crops (see _Net)
+        if pred.size == 0:
+            return []
         pred = pred.reshape(-1, pred.shape[-1]) if pred.ndim >= 2 else pred.reshape(1, -1)
         if pred.shape[-1] < 7:
             return []
@@ -175,16 +191,25 @@ class PlateReader:
     def read_vehicle(self, frame: np.ndarray, box: Tuple[int, int, int, int]) -> Optional[PlateRead]:
         """Find + read the best plate inside a vehicle box (frame pixels)."""
         h, w = frame.shape[:2]
-        x1, y1, x2, y2 = box
-        px, py = int((x2 - x1) * 0.04), int((y2 - y1) * 0.04)
-        x1, y1, x2, y2 = max(0, x1 - px), max(0, y1 - py), min(w, x2 + px), min(h, y2 + py)
-        if x2 - x1 < 48 or y2 - y1 < 32:
+        vx1, vy1, vx2, vy2 = box
+        if vx2 - vx1 < 48 or vy2 - vy1 < 32:
             return None
-        crop = frame[y1:y2, x1:x2]
-        found = self.detect(crop)
-        if not found:
+        # The detector is sensitive to framing: a plate found in the tight box can
+        # vanish in a slightly padded one and vice versa, so try both, keep the best.
+        best = None
+        for pad in (0.04, 0.0):
+            px, py = int((vx2 - vx1) * pad), int((vy2 - vy1) * pad)
+            x1, y1 = max(0, vx1 - px), max(0, vy1 - py)
+            x2, y2 = min(w, vx2 + px), min(h, vy2 + py)
+            crop = frame[y1:y2, x1:x2]
+            found = self.detect(crop)
+            if found and (best is None or found[0][1] > best[0]):
+                best = (found[0][1], found[0][0], crop, x1, y1)
+            if best is not None and best[0] >= 0.8:
+                break                                   # confident enough, skip the second pass
+        if best is None:
             return None
-        (bx1, by1, bx2, by2), _ = found[0]
+        _, (bx1, by1, bx2, by2), crop, x1, y1 = best
         # small margin around the plate helps the OCR model
         mx, my = int((bx2 - bx1) * 0.06), int((by2 - by1) * 0.12)
         bx1, by1 = max(0, bx1 - mx), max(0, by1 - my)
@@ -225,11 +250,17 @@ def status() -> Dict[str, Any]:
         if (deps.config.MODELS_DIR / deps.ASSETS[n][0]).is_file():
             assets[n] = "ready"
     error = _status.get("error", "")
+    missing = [n for n, s in assets.items() if s != "ready"]
+    pending = None
+    if not error and missing:
+        failed = [n for n in missing if assets[n] == "failed"]
+        pending = (f"Model download failed ({', '.join(failed)}) - retrying automatically"
+                   if failed else f"Downloading models ({', '.join(missing)})")
     return {
-        "available": not error,
+        "available": not error and not missing,
         "backend": _status.get("backend") or None,
         "assets": assets,
-        "error": error or None,
+        "error": error or pending,
         "install_cmd": ORT_INSTALL_CMD if error else None,
     }
 

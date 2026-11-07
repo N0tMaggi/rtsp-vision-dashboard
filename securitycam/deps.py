@@ -168,10 +168,14 @@ def _download(name: str, filename: str, url: str) -> None:
         req = urllib.request.Request(url, headers={"User-Agent": "SecurityCam"})
         with urllib.request.urlopen(req, timeout=30) as resp, open(tmp, "wb") as fh:
             shutil.copyfileobj(resp, fh)
-        if tmp.stat().st_size < 1024:
-            raise ValueError("download too small")
+        # Catch truncated/HTML-error downloads. Small text configs (e.g. the
+        # 507-byte plate OCR yaml) are legitimately tiny, model weights are not.
+        min_bytes = 64 if Path(filename).suffix.lower() in (".yaml", ".yml", ".json", ".txt") else 1024
+        size = tmp.stat().st_size
+        if size < min_bytes:
+            raise ValueError(f"download too small ({size} bytes)")
         os.replace(tmp, target)
-        print(f"[ASSET] {filename} ready ({target.stat().st_size // 1024} KB).")
+        print(f"[ASSET] {filename} ready ({max(1, size // 1024)} KB).")
         with _asset_lock:
             asset_status[name] = "ready"
     except Exception as exc:  # network down, proxy, disk full ...
