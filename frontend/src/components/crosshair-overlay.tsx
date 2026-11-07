@@ -118,6 +118,8 @@ function Marker({
   const name = target.identity?.name
   const dist = fmtMeters(target.distance)
   const label = [name, point.toUpperCase(), dist].filter(Boolean).join(" · ")
+  // pose ESP pack: friend / foe accent for the label
+  const accent = target.iff === "friend" ? "#7ee0a1" : target.iff === "foe" ? "#ff5a5a" : settings.color
 
   return (
     <motion.div className="absolute left-0 top-0" style={{ x, y, opacity: visible }}>
@@ -134,7 +136,7 @@ function Marker({
         {settings.label && primary && (
           <div
             className="absolute flex items-center gap-1 whitespace-nowrap rounded-full bg-background/75 px-2 py-0.5 text-[10px] font-medium tracking-wider tabular-nums backdrop-blur-md"
-            style={{ left: 0, top: half + 2, transform: "translateX(-50%)", color: settings.color }}
+            style={{ left: 0, top: half + 2, transform: "translateX(-50%)", color: accent }}
           >
             {ptz && <span className="rounded-sm bg-current px-1 text-[9px] leading-tight"><span className="text-background">PTZ</span></span>}
             {label}

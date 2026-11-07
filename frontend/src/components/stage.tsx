@@ -9,6 +9,7 @@ import { useStageContext, type Notice } from "./stage-context"
 import { StageToolbar, type Tool } from "./stage-toolbar"
 import { StageVisuals } from "./stage-visuals"
 import { CrosshairOverlay } from "./crosshair-overlay"
+import { GestureToasts } from "./gesture-toasts"   // pose ESP pack
 
 type Phase = "idle" | "connecting" | "live" | "error"
 
@@ -488,6 +489,9 @@ export function Stage(props: Props) {
         </svg>
       </motion.div>
       {loaded && <CrosshairOverlay view={view} width={rect.width} height={rect.height} targets={aiOn ? list : []} lockedId={lockedId} />}
+      {loaded && aiOn && (   // pose ESP pack: gesture confirmations
+        <GestureToasts view={view} width={rect.width} height={rect.height} targets={list} gestures={targets?.gestures} />
+      )}
       {loaded && aiOn && (
         <StageVisuals
           view={view}

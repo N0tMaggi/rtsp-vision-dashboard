@@ -50,7 +50,8 @@ export default function App() {
   // license plate log (P)
   const [plateLogOpen, setPlateLogOpen] = useState(false)
   const plateLog = usePlateLog(plateLogOpen)
-  const ev = useEvents((fresh) => fresh.slice(0, 3).reverse().forEach((e) => toast.push({ key: `${e.camera}/${e.id}`, type: "alarm", event: e })))
+  // gesture events (pose ESP pack) get their own on-stage confirmation instead of an alarm toast
+  const ev = useEvents((fresh) => fresh.filter((e) => e.kind !== "gesture").slice(0, 3).reverse().forEach((e) => toast.push({ key: `${e.camera}/${e.id}`, type: "alarm", event: e })))
 
   useEffect(() => {
     const mq = window.matchMedia("(min-width: 768px)")

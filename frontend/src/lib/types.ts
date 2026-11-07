@@ -83,6 +83,35 @@ export interface Target {
   /** Newer backends: body points, normalized like `box` (pose keypoints or box fractions). */
   aim?: Partial<Record<AimKey, [number, number]>>
   aim_src?: "pose" | "box"
+  // --- pose ESP pack (newer backends) ---
+  /** Persons: friend = recognized, foe = unknown face, unknown = no face identity. */
+  iff?: Iff
+  posture?: Posture
+  action?: PoseAction
+  /** Head direction in degrees (yaw + = toward the image's right, pitch + = down). */
+  gaze?: { yaw: number; pitch: number }
+  looking_at_camera?: boolean
+  /** A fall was detected in the last few seconds. */
+  fall?: boolean
+  /** Gestures currently being held (hold timers running). */
+  gesture?: GestureKind[]
+}
+
+export type Iff = "friend" | "foe" | "unknown"
+export type Posture = "standing" | "sitting" | "lying" | "crouching"
+export type PoseAction = "walking" | "running" | "waving" | "hands_up"
+export type GestureKind = "wave" | "palm" | "thumbs_up"
+
+/** A fired gesture (pose ESP pack), kept a few seconds for the on-stage confirmation. */
+export interface GestureEvent {
+  seq: number
+  id: number
+  gesture: GestureKind
+  label: string
+  message: string
+  ok: boolean
+  ts: number
+  age: number
 }
 
 export interface TargetTag {
@@ -133,6 +162,8 @@ export interface TargetsResponse {
   pose?: CameraPose
   /** Solo / hidden targets of this camera (newer backends). */
   view?: ViewFilter
+  /** Recently fired gestures (pose ESP pack, only while gestures are on). */
+  gestures?: GestureEvent[]
 }
 
 export interface Zone {

@@ -114,7 +114,8 @@ export function AlertsPanel({ cameraId, settings, onUpdate, zones, onDrawTripwir
       </Section>
 
       <Section title="Notifications">
-        <Notifications cameraId={cameraId} config={config} onAbandonedNotify={(v) => cameraId && act(() => alertsApi.setOptions(cameraId, { abandoned_notify: v }))} />
+        <Notifications cameraId={cameraId} config={config} onAbandonedNotify={(v) => cameraId && act(() => alertsApi.setOptions(cameraId, { abandoned_notify: v }))}
+          onFallNotify={(v) => cameraId && act(() => alertsApi.setOptions(cameraId, { fall_notify: v }))} />
       </Section>
     </>
   )
@@ -436,10 +437,13 @@ function Notifications({
   cameraId,
   config,
   onAbandonedNotify,
+  onFallNotify,
 }: {
   cameraId: string | null
   config: AlertsConfig | null
   onAbandonedNotify: (v: boolean) => void
+  /** Pose ESP pack fall alarms. */
+  onFallNotify?: (v: boolean) => void
 }) {
   const [result, setResult] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
@@ -487,6 +491,12 @@ function Notifications({
         Notify Abandoned Objects
         <Switch checked={config?.abandoned_notify ?? true} onCheckedChange={onAbandonedNotify} aria-label="Notify Abandoned Objects" />
       </label>
+      {onFallNotify && config?.fall_notify !== undefined && (
+        <label className="mt-2 flex items-center justify-between gap-3 text-sm text-muted-foreground">
+          Notify Falls
+          <Switch checked={config.fall_notify} onCheckedChange={onFallNotify} aria-label="Notify Falls" />
+        </label>
+      )}
       <button
         type="button"
         onClick={() => void test()}
