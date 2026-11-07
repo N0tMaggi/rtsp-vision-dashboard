@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from "motion/react"
-import { Crosshair, Minus, MousePointer2, Plus, RotateCcw, Slash, SquareDashed, X } from "lucide-react"
+import { Crosshair, Minus, MousePointer2, Plus, RotateCcw, Slash, Sparkles, SquareDashed, X } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { openEnhance, useEnhanceState } from "@/lib/enhance"
 import type { Target } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -24,6 +25,8 @@ interface Props {
 const spring = { type: "spring", stiffness: 420, damping: 32 } as const
 
 export function StageToolbar(p: Props) {
+  const { videoPaused } = useEnhanceState()
+  const showEnhance = p.zoom > 1.01 || videoPaused
   let hint: string
   if (p.tool === "tripwire") hint = "Drag a line to create a tripwire. Esc cancels."
   else if (p.tool === "zone") hint = "Drag a rectangle to create a zone. Esc cancels."
@@ -105,6 +108,25 @@ export function StageToolbar(p: Props) {
             )}
           </AnimatePresence>
         </div>
+
+        <AnimatePresence initial={false}>
+          {showEnhance && (
+            <motion.button
+              type="button"
+              initial={{ opacity: 0, scale: 0.85, x: -6 }}
+              animate={{ opacity: 1, scale: 1, x: 0 }}
+              exit={{ opacity: 0, scale: 0.85, x: -6 }}
+              transition={spring}
+              whileTap={{ scale: 0.94 }}
+              onClick={() => openEnhance()}
+              aria-label="Enhance (X)"
+              title="Enhance (X): AI-upscale the visible region"
+              className="flex h-9 items-center gap-1.5 rounded-full border border-primary/60 bg-background/70 px-3 text-xs text-primary backdrop-blur-md transition-colors hover:bg-primary hover:text-primary-foreground"
+            >
+              <Sparkles className="size-3.5" /> Enhance
+            </motion.button>
+          )}
+        </AnimatePresence>
 
         <AnimatePresence mode="wait">
           <motion.p

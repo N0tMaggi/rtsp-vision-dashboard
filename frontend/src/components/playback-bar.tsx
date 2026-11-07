@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import { AnimatePresence, motion } from "motion/react"
-import { ChevronLeft, ChevronRight, Pause, Play, Radio, Repeat, RotateCcw } from "lucide-react"
+import { ChevronLeft, ChevronRight, Pause, Play, Radio, Repeat, RotateCcw, Sparkles } from "lucide-react"
+import { openEnhance, setEnhanceVideoPaused } from "@/lib/enhance"
 import { formatTime, type Playback, type PlaybackCommand } from "@/lib/videos"
 import { cn } from "@/lib/utils"
 
@@ -48,6 +49,13 @@ export function PlaybackBar({ playback, position, onCommand, live, rightInset = 
   const duration = pb?.duration ?? 0
   const pos = scrub !== null ? scrub * duration : position()
   const frac = duration > 0 ? Math.min(1, Math.max(0, pos / duration)) : 0
+
+  // Paused video -> the stage toolbar offers "Enhance" too.
+  const paused = Boolean(pb && !pb.playing && !live)
+  useEffect(() => {
+    setEnhanceVideoPaused(paused)
+    return () => setEnhanceVideoPaused(false)
+  }, [paused])
 
   // Lift the stage toolbar (zoom / tools) above the bar while it is shown.
   useEffect(() => {
@@ -130,6 +138,15 @@ export function PlaybackBar({ playback, position, onCommand, live, rightInset = 
             <IconButton label="Restart" onClick={() => onCommand({ action: "restart" })} disabled={!pb}>
               <RotateCcw className="size-3.5" />
             </IconButton>
+            <AnimatePresence initial={false}>
+              {paused && (
+                <motion.span initial={{ width: 0, opacity: 0 }} animate={{ width: "auto", opacity: 1 }} exit={{ width: 0, opacity: 0 }} className="overflow-hidden">
+                  <IconButton label="Enhance this frame (X)" onClick={() => openEnhance()}>
+                    <Sparkles className="size-3.5 text-primary" />
+                  </IconButton>
+                </motion.span>
+              )}
+            </AnimatePresence>
           </>
         )}
       </div>

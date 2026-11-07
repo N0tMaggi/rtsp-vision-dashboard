@@ -3,6 +3,7 @@ import { MotionConfig, motion } from "motion/react"
 import { Camera as CameraIcon, SlidersHorizontal } from "lucide-react"
 import { AlarmToasts, SnapshotFlash, useToasts } from "@/components/alarm-toasts"
 import { ClipPlayer } from "@/components/clip-player"
+import { EnhanceView } from "@/components/enhance-view"
 import { EventsButton, EventsDrawer } from "@/components/events-drawer"
 import { CameraSwitcher } from "@/components/camera-switcher"
 import { ComputeChip } from "@/components/compute-panel"
@@ -378,6 +379,7 @@ export default function App() {
                   void ev.remove(e)
                 }}
               />
+              <EnhanceView />
             </>
           )}
         </div>
