@@ -41,12 +41,14 @@ export interface AlertsConfig {
   zone_rules: Record<string, ZoneRule>
   tripwires: Tripwire[]
   abandoned_notify: boolean
+  /** Pose ESP pack: notify on fall alarms (newer backends). */
+  fall_notify?: boolean
   abandon_classes: string[]
   channels: { ntfy: boolean; telegram: boolean; discord: boolean }
   clip: { pre_s: number; post_s: number }
 }
 
-export type EventKind = "zone" | "tripwire" | "abandoned" | "plate"
+export type EventKind = "zone" | "tripwire" | "abandoned" | "plate" | "fall" | "gesture"
 
 export interface AlarmEvent {
   id: string
@@ -114,7 +116,7 @@ function send<T>(url: string, method: string, body?: unknown): Promise<T> {
 
 export const alertsApi = {
   config: (id: string, signal?: AbortSignal) => fetch(`${cam(id)}/alerts`, { signal }).then((r) => json<AlertsConfig>(r)),
-  setOptions: (id: string, patch: { abandoned_notify: boolean }) => send<AlertsConfig>(`${cam(id)}/alerts`, "PATCH", patch),
+  setOptions: (id: string, patch: { abandoned_notify?: boolean; fall_notify?: boolean }) => send<AlertsConfig>(`${cam(id)}/alerts`, "PATCH", patch),
   setRule: (id: string, zoneId: string, patch: Partial<ZoneRule>) =>
     send<{ ok: boolean; rule: ZoneRule }>(`${cam(id)}/zones/${encodeURIComponent(zoneId)}/rule`, "PUT", patch),
   deleteRule: (id: string, zoneId: string) => send<{ ok: boolean }>(`${cam(id)}/zones/${encodeURIComponent(zoneId)}/rule`, "DELETE"),
@@ -141,4 +143,6 @@ export const KIND_LABEL: Record<EventKind, string> = {
   tripwire: "Tripwire",
   abandoned: "Abandoned",
   plate: "Watchlist Plate",
+  fall: "Fall",
+  gesture: "Gesture",
 }

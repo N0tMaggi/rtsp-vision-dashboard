@@ -215,6 +215,22 @@ DEFAULT_ESP_SETTINGS = {
     "color_pet": "#ff9f43",
     "color_known": "#7ee0a1",
     "color_unknown": "#ff5a5a",
+    # --- pose ESP pack (securitycam/esp/posepack.py); every visual is off by default ---
+    "iff_colors": False,               # friend (known) / foe (unknown face) / unidentified person colors
+    "iff_color_friend": "#7ee0a1",
+    "iff_color_foe": "#ff5a5a",
+    "iff_color_unknown": "#ffd21f",
+    "gaze": False,                     # head direction cone + "looking at camera"
+    "posture": False,                  # standing / sitting / lying / ... + action labels
+    "fall_alarm": True,                # with posture: upright -> lying fast raises a "fall" alarm event
+    "status_bars": False,              # dwell / confidence / speed bars beside each box
+    "bar_dwell": True,
+    "bar_conf": True,
+    "bar_speed": True,
+    "gestures": False,                 # wave = PTZ auto-track, open palm = stop, thumbs up = snapshot
+    "gesture_wave": True,
+    "gesture_palm": True,
+    "gesture_thumbs": True,
 }
 
 

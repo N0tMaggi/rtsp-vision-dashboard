@@ -76,6 +76,36 @@ export const COLORS: ToggleDef[] = [
   { key: "chams_color", label: "Chams" },
 ]
 
+// --- pose ESP pack ("Body" category, components/body-panel.tsx) ---
+export interface HintToggleDef extends ToggleDef {
+  hint: string
+}
+
+export const BODY_TOGGLES: HintToggleDef[] = [
+  { key: "iff_colors", label: "Friend / Foe Colors", hint: "Known people green, unknown faces red, unidentified yellow. Overrides box colors." },
+  { key: "gaze", label: "View Cone", hint: "Head direction from the face keypoints. An eye marks people looking into the camera." },
+  { key: "posture", label: "Posture & Actions", hint: "Standing, sitting, lying, walking, waving, hands up… shown under each person." },
+  { key: "status_bars", label: "Status Bars", hint: "Game-style bars beside each box. Burned into recordings and snapshots." },
+]
+
+export const BAR_TOGGLES: ToggleDef[] = [
+  { key: "bar_dwell", label: "Dwell" },
+  { key: "bar_conf", label: "Confidence" },
+  { key: "bar_speed", label: "Speed" },
+]
+
+export const GESTURE_TOGGLES: HintToggleDef[] = [
+  { key: "gesture_wave", label: "Wave", hint: "Wave for 2 s: the PTZ camera starts following you." },
+  { key: "gesture_palm", label: "Open Palm", hint: "Hold an open palm still for 1.5 s: auto-track stops." },
+  { key: "gesture_thumbs", label: "Thumbs Up", hint: "Hold a thumbs up for 1 s: a snapshot is saved as an event." },
+]
+
+export const IFF_COLORS: ToggleDef[] = [
+  { key: "iff_color_friend", label: "Friend" },
+  { key: "iff_color_foe", label: "Foe" },
+  { key: "iff_color_unknown", label: "Unidentified" },
+]
+
 export const FACE_BLUR_MODES = [
   { value: "blur", label: "Blur" },
   { value: "pixelate", label: "Pixel" },

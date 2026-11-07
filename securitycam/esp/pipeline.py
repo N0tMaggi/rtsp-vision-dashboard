@@ -12,6 +12,7 @@ import numpy as np
 from . import alerts_render as AR
 from . import anchor_render
 from . import motion
+from . import posepack  # pose ESP pack (IFF, gaze, posture, status bars, gestures)
 from . import renderers as R
 from . import visuals
 from .colors import ANTHRACITE, DetectionColors, center_dot_color, mix, resolve_detection_colors
@@ -122,7 +123,7 @@ def draw_custom_esp(camera_state, frame, results, frame_ts: Optional[float] = No
     # ---- stateful part (short critical section) -----------------------------------
     with _esp_lock(camera_state):
         faces = update_faces(camera_state, frame, s, frame_idx, gray)
-        hands = update_hands(camera_state, frame, s, frame_idx)
+        hands = update_hands(camera_state, frame, posepack.hand_settings(s, camera_state.esp_settings), frame_idx)
         detections = _update_tracks(camera_state, s, results, t_frame, results_ts, float(coord_scale))
         mst = motion.get_state(camera_state)
         mst.frame_w, mst.frame_h = w, h
@@ -137,6 +138,8 @@ def draw_custom_esp(camera_state, frame, results, frame_ts: Optional[float] = No
         zones = anchor.project_zones(view, list(getattr(camera_state, "esp_zones", None) or ()), w, h)
         zones, alert_info = AR.update(camera_state, detections, w, h, t_frame, zones, view)
         zones = zones if s.zones else []
+        # pose pack: posture / gaze / fall / gesture state (None when every pose feature is off)
+        ppack = posepack.update(camera_state, mst, hands, t_frame)
 
     # recognition (names, plates, pets): per-frame context, lookups only
     rc = recog.prepare(camera_state, coord_scale, t_frame)
@@ -201,6 +204,8 @@ def draw_custom_esp(camera_state, frame, results, frame_ts: Optional[float] = No
         ]
         palettes = recog.adjust_palettes(rc, detections, palettes, s.rgb_mode)
         palettes = visuals.loiter_palettes(palettes, detections, vs, vstats, t_frame)
+        if ppack is not None:   # pose pack: IFF friend / foe colors
+            palettes = ppack.palettes(rc, detections, palettes)
         lock_idx = None
         if locked is not None:
             lock_idx = next((i for i, d in enumerate(detections) if d.track_key == locked), None)
@@ -218,7 +223,8 @@ def draw_custom_esp(camera_state, frame, results, frame_ts: Optional[float] = No
                 if s.fill_box:
                     R.draw_fill(frame, det, pal.fill)
                 if s.chams:
-                    R.draw_chams(frame, det, s.chams_color, s.chams_opacity)
+                    R.draw_chams(frame, det, ppack.chams(det, s.chams_color) if ppack is not None else s.chams_color,
+                                 s.chams_opacity)
 
         draws_body = s.boxes or s.skeleton or s.head or closest is not None
 
@@ -250,6 +256,8 @@ def draw_custom_esp(camera_state, frame, results, frame_ts: Optional[float] = No
                 R.draw_head(frame, det, s.color_head, st)
             if i == closest:
                 R.draw_highlight_marker(frame, det, pal.box, st)
+            if ppack is not None and opaque:   # pose pack: bars, gaze cone, IFF marker, fall flash
+                ppack.draw(frame, det, pal, st, t_frame, placed)
             if rect is not None:
                 R.apply_fade(frame, backup, rect, det.alpha)
 
@@ -281,6 +289,8 @@ def draw_custom_esp(camera_state, frame, results, frame_ts: Optional[float] = No
         for det, tag, _ in tags:
             R.place_tag(tag, (det.x1, det.y1, det.x2, det.y2), w, h, st, placed)
             R.draw_tag(frame, tag)
+        if ppack is not None:   # pose pack: posture / action pills under the boxes
+            ppack.draw_tags(frame, detections, st, placed, s.label_background)
     AR.draw_over(frame, alert_info, st, camera_state.esp_settings, s.color_text, s.label_background, placed)
 
     # ---- faces / hands / inset -----------------------------------------------------

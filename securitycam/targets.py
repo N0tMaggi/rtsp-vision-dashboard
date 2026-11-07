@@ -107,7 +107,11 @@ def targets_payload(camera_state) -> dict[str, Any]:
                        "moving": view.speed > 0.35}
     from .tags import decorate_payload   # tags, identity, solo / hidden (additive fields)
 
-    return decorate_payload(camera_state, out)
+    out = decorate_payload(camera_state, out)
+    # pose pack: iff / posture / action / gaze / fall / gestures (additive fields)
+    from .esp.posepack import decorate_targets
+    with _esp_lock(camera_state):
+        return decorate_targets(camera_state, out)
 
 
 def set_lock(camera_state, target_id: Optional[int]) -> bool:

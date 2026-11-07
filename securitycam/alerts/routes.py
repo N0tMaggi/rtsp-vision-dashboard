@@ -59,6 +59,7 @@ def _alerts_payload(camera_id: str) -> dict:
         "zone_rules": cfg["zone_rules"],
         "tripwires": cfg["tripwires"],
         "abandoned_notify": cfg["abandoned_notify"],
+        "fall_notify": cfg.get("fall_notify", True),
         "abandon_classes": sorted(conf.ABANDON_CLASSES),
         "channels": notify.channels(),
         "clip": {"pre_s": conf.CLIP_PRE_S, "post_s": conf.CLIP_POST_S},

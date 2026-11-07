@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react"
 import { AnimatePresence, motion } from "motion/react"
-import { Box, Fingerprint, Microchip, Palette, Radar, Route, ScanFace, Siren, SquareDashed, Trash2, X } from "lucide-react"
+import { Box, Fingerprint, Microchip, Palette, PersonStanding, Radar, Route, ScanFace, Siren, SquareDashed, Trash2, X } from "lucide-react"
+import { BodyPanel } from "@/components/body-panel"   // pose ESP pack
 import { AlertsPanel } from "@/components/alerts-panel"
 import { FaceImagePicker } from "@/components/face-image-picker"
 import { ComputePanel } from "@/components/compute-panel"
@@ -32,6 +33,7 @@ type Update = (key: string, value: boolean | number | string, immediate?: boolea
 const CATEGORIES = [
   { id: "visual", label: "Visuals", icon: Box },
   { id: "face", label: "Faces & Hands", icon: ScanFace },
+  { id: "body", label: "Body", icon: PersonStanding },   // pose ESP pack
   { id: "track", label: "Tracking", icon: Route },
   { id: "zones", label: "Zones", icon: SquareDashed },
   { id: "alarms", label: "Alarms", icon: Siren },
@@ -296,6 +298,8 @@ function CategoryBody({
           />
         </>
       )
+    case "body":   // pose ESP pack
+      return <BodyPanel settings={settings} onUpdate={onUpdate} />
     case "track":
       return (
         <>
@@ -441,7 +445,7 @@ export function SliderList({ items, settings, onUpdate }: { items: SliderDef[]; 
   )
 }
 
-function ColorRow({ def, value, onUpdate }: { def: ToggleDef; value: string; onUpdate: Update }) {
+export function ColorRow({ def, value, onUpdate }: { def: ToggleDef; value: string; onUpdate: Update }) {
   const [local, setLocal] = useState(value)
   const [prev, setPrev] = useState(value)
   if (value !== prev) {

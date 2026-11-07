@@ -1,13 +1,13 @@
 import { useMemo, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
-import { Film, Footprints, Luggage, RectangleHorizontal, Siren, SquareDashed, Trash2, X } from "lucide-react"
+import { Film, Footprints, Hand, Luggage, PersonStanding, RectangleHorizontal, Siren, SquareDashed, Trash2, X } from "lucide-react"
 import { KIND_LABEL, type ActiveAlarm, type AlarmEvent, type EventKind } from "@/lib/alerts"
 import type { Camera } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { formatDay, formatTime } from "./clip-player"
 
 const ease = [0.22, 1, 0.36, 1] as const
-const KIND_ICON: Record<EventKind, typeof Siren> = { zone: SquareDashed, tripwire: Footprints, abandoned: Luggage, plate: RectangleHorizontal }
+const KIND_ICON: Record<EventKind, typeof Siren> = { zone: SquareDashed, tripwire: Footprints, abandoned: Luggage, plate: RectangleHorizontal, fall: PersonStanding, gesture: Hand }
 
 /** Header button: unread badge, pulses red while any alarm is active. */
 export function EventsButton({
