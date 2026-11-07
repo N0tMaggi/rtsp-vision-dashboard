@@ -17,6 +17,7 @@ import {
   ScanFace,
   ScanText,
   Slash,
+  Sparkles,
   SquareDashed,
   Tag,
   Users,
@@ -26,6 +27,7 @@ import { ContextMenu, type MenuEntry, type PanelApi } from "@/components/context
 import { contextApi, contextError, type FrozenFrame, type ManualRead, type TagCatalogItem, type TagOwner } from "@/lib/context-api"
 import { recognitionApi, errorText, type FaceCandidate, type Person } from "@/lib/recognition"
 import type { Camera, NBox, Target, TargetTag, ViewFilter } from "@/lib/types"
+import { openEnhance } from "@/lib/enhance"
 import { videosApi } from "@/lib/videos"
 import { cn } from "@/lib/utils"
 
@@ -83,6 +85,13 @@ interface Annotate {
 export function targetTitle(t: Target) {
   const who = t.identity?.name ?? (t.identity?.face_id !== undefined ? `Face #${t.identity.face_id}` : null)
   return `${t.label} #${t.id}${who ? ` · ${who}` : ""}`
+}
+
+/** Target box with 25% margin (clamped), so the enhanced crop keeps some context. */
+function paddedBox(b: NBox): NBox {
+  const px = (b[2] - b[0]) * 0.25
+  const py = (b[3] - b[1]) * 0.25
+  return [Math.max(0, b[0] - px), Math.max(0, b[1] - py), Math.min(1, b[2] + px), Math.min(1, b[3] + py)]
 }
 
 function infoText(t: Target, camera: Camera | undefined) {
@@ -245,6 +254,14 @@ export function useStageContext(o: Options) {
             .catch(() => notify?.({ title: "Clipboard not available", tone: "error" }))
         },
       })
+      out.push({
+        kind: "item",
+        id: "enhance-target",
+        label: "Enhance This…",
+        icon: Sparkles,
+        hint: "AI upscale this target (marked as AI enhanced)",
+        onSelect: () => openEnhance({ cameraId: cameraId ?? undefined, region: paddedBox(target.box) }),
+      })
       if (isPerson(target)) {
         out.push({ kind: "separator", id: "s3" })
         out.push({
@@ -307,6 +324,15 @@ export function useStageContext(o: Options) {
         onSelect: () => void startMarkPlate(null, at),
       })
       if (o.onSnapshot) out.push({ kind: "item", id: "snap", label: "Snapshot", icon: CameraIcon, shortcut: "S", onSelect: o.onSnapshot })
+      out.push({
+        kind: "item",
+        id: "enhance-view",
+        label: "Enhance View…",
+        icon: Sparkles,
+        shortcut: "X",
+        hint: "AI upscale what you see (marked as AI enhanced)",
+        onSelect: () => openEnhance({ cameraId: cameraId ?? undefined }),
+      })
       if (isFile && o.video)
         out.push({
           kind: "item",
