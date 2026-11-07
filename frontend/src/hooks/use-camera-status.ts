@@ -1,15 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { useLiveTopic, useShouldPoll } from "@/hooks/use-live-stream"
 import { api } from "@/lib/api"
 import type { CameraStatus } from "@/lib/types"
 
 const INTERVAL_MS = 1000
 
-/** Polls /status for the active camera while the page is visible. */
+/**
+ * Status of the active camera: pushed by the live stream; polls /status
+ * only while the stream is down. ``refresh`` fetches once (after commands).
+ */
 export function useCameraStatus(cameraId: string | null) {
   const [status, setStatus] = useState<CameraStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
   const cache = useRef(new Map<string, CameraStatus>())
   const ctrl = useRef<AbortController | null>(null)
+  const poll = useShouldPoll()
 
   const refresh = useCallback(async () => {
     if (!cameraId || document.hidden) return
@@ -27,9 +32,20 @@ export function useCameraStatus(cameraId: string | null) {
     }
   }, [cameraId])
 
+  useLiveTopic("status", (s) => {
+    if (s.camera?.id !== cameraId) return
+    cache.current.set(s.camera.id, s)
+    setStatus(s)
+    setError(null)
+  })
+
   useEffect(() => {
     setStatus(cameraId ? (cache.current.get(cameraId) ?? null) : null)
     setError(null)
+  }, [cameraId])
+
+  useEffect(() => {
+    if (!poll) return
     void refresh()
     const t = window.setInterval(() => void refresh(), INTERVAL_MS)
     const onVis = () => !document.hidden && void refresh()
@@ -39,7 +55,7 @@ export function useCameraStatus(cameraId: string | null) {
       document.removeEventListener("visibilitychange", onVis)
       ctrl.current?.abort()
     }
-  }, [cameraId, refresh])
+  }, [poll, refresh])
 
   return { status, error, refresh }
 }

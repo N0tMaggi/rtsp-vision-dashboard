@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { useLiveTopic, useShouldPoll } from "@/hooks/use-live-stream"
 import { api } from "@/lib/api"
 import { opsApi, type PtzSettings, type PtzStatus } from "@/lib/ops-api"
 
@@ -23,6 +24,8 @@ const isZero = (v: Vector) => v.x === 0 && v.y === 0 && v.zoom === 0
  *   panel / PTZ mode (once per camera and page load) or via the retry button,
  *   so a wrong password cannot lock the camera account through polling.
  * - Held moves are re-sent every 500 ms; letting go (or losing focus) stops.
+ * - Status is pushed by the live stream (faster while moving); polling is
+ *   the fallback while the stream is down.
  */
 export function usePtz(cameraId: string | null, active: boolean, keyboard: boolean) {
   const [status, setStatus] = useState<PtzStatus | null>(null)
@@ -30,6 +33,7 @@ export function usePtz(cameraId: string | null, active: boolean, keyboard: boole
   const tried = useRef(new Set<string>())
   const vector = useRef<Vector>(ZERO)
   const repeat = useRef<number | undefined>(undefined)
+  const poll = useShouldPoll()
 
   const refresh = useCallback(async () => {
     if (!cameraId || document.hidden) return
@@ -43,15 +47,19 @@ export function usePtz(cameraId: string | null, active: boolean, keyboard: boole
   useEffect(() => {
     setStatus(null)
     setMessage(null)
-    void refresh()
-  }, [refresh])
+    // camera change: one fetch while polling; otherwise the stream delivers the status
+    if (poll) void refresh()
+  }, [refresh]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useLiveTopic("ptz", setStatus, Boolean(cameraId))
 
   const fast = Boolean(status?.pose?.moving || status?.pose?.calibration?.state === "running")
   useEffect(() => {
-    if (!active) return
+    if (!active || !poll) return
+    void refresh()
     const t = window.setInterval(() => void refresh(), fast ? POLL_FAST_MS : POLL_MS)
     return () => window.clearInterval(t)
-  }, [active, fast, refresh])
+  }, [active, fast, refresh, poll])
 
   const connect = useCallback(async () => {
     if (!cameraId) return

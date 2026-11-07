@@ -1,17 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { useLiveTopic, useShouldPoll } from "@/hooks/use-live-stream"
 import { videosApi, type Playback, type PlaybackCommand } from "@/lib/videos"
 
 const POLL_MS = 700
 
 /**
- * Playback state of a video source: polled from the server and extrapolated
- * locally between polls, so the scrubber moves smoothly. Commands update the
- * state optimistically; polls that started before a command are ignored.
+ * Playback state of a video source: pushed by the live stream (polled while
+ * it is down) and extrapolated locally in between, so the scrubber moves
+ * smoothly. Commands update the state optimistically; pushes and polls that
+ * arrive while a command is in flight (or started before it) are ignored.
  */
 export function usePlayback(cameraId: string | null) {
   const [playback, setPlayback] = useState<Playback | null>(null)
   const receivedAt = useRef(0)
   const generation = useRef(0)
+  const inflight = useRef(0)
+  const polling = useShouldPoll()
 
   const apply = useCallback((p: Playback) => {
     receivedAt.current = performance.now()
@@ -20,7 +24,18 @@ export function usePlayback(cameraId: string | null) {
 
   useEffect(() => {
     setPlayback(null)
-    if (!cameraId) return
+  }, [cameraId])
+
+  useLiveTopic(
+    "playback",
+    (p) => {
+      if (inflight.current === 0) apply(p)
+    },
+    Boolean(cameraId),
+  )
+
+  useEffect(() => {
+    if (!cameraId || !polling) return
     let stopped = false
     let ctrl: AbortController | null = null
     const poll = async () => {
@@ -42,7 +57,7 @@ export function usePlayback(cameraId: string | null) {
       window.clearInterval(t)
       ctrl?.abort()
     }
-  }, [cameraId, apply])
+  }, [cameraId, apply, polling])
 
   /** Current position in seconds, extrapolated from the last server state. */
   const position = useCallback(() => {
@@ -80,11 +95,14 @@ export function usePlayback(cameraId: string | null) {
         receivedAt.current = performance.now()
         return next
       })
+      inflight.current += 1
       try {
         const r = await videosApi.control(cameraId, cmd)
         if (gen === generation.current) apply(r.playback)
       } catch {
-        /* the next poll restores the real state */
+        /* the next push / poll restores the real state */
+      } finally {
+        inflight.current -= 1
       }
     },
     [cameraId, apply, position],
