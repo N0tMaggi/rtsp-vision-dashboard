@@ -95,6 +95,9 @@ def _is_auto(workload: str, d: str) -> bool:
 
 
 def _row_label(workload: str, d: str) -> str:
+    if workload == "depth":     # depth package
+        from ..depth import bench as depth_bench
+        return depth_bench.row_label(d)
     if d == "auto":
         return "Auto (onnxruntime / OpenCV)" if workload == "plates" else "Auto (OpenCV)"
     if d == "cuda":
@@ -139,7 +142,13 @@ def _run(job, runner) -> None:
 
 # ----------------------------------------------------------------------------- real runners
 def _default_runner(job, set_row) -> None:
-    {"yolo": _bench_yolo, "faces": _bench_faces, "plates": _bench_plates}[job["workload"]](job, set_row)
+    {"yolo": _bench_yolo, "faces": _bench_faces, "plates": _bench_plates,
+     "depth": _bench_depth}[job["workload"]](job, set_row)
+
+
+def _bench_depth(job, set_row) -> None:    # depth package
+    from ..depth import bench as depth_bench
+    depth_bench.run(job, set_row, _time)
 
 
 def _frame() -> np.ndarray:

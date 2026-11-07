@@ -214,6 +214,8 @@ def create_app() -> Flask:
     app.register_blueprint(context_blueprint)
     from .face_masks import blueprint as face_masks_blueprint  # custom face-cover images
     app.register_blueprint(face_masks_blueprint)
+    from .depth.api import blueprint as depth_blueprint  # monocular depth: status + user calibration
+    app.register_blueprint(depth_blueprint)
     return app
 
 

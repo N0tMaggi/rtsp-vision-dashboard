@@ -15,6 +15,7 @@ import time
 import cv2
 
 from . import capture_env, compute, config, deps, gpu, recognition, state
+from . import depth as depth_hooks          # monocular depth / room map (fail-safe hooks)
 from .alerts.clips import record_frame
 from .esp import draw_custom_esp
 from .ptz import pose as ptz_pose
@@ -188,12 +189,14 @@ def render_jpeg(camera_state, frame, frame_ts=None):
     JPEG bytes or ``None`` if encoding failed. Updates the camera stats.
     """
     coord_scale = 1.0
+    depth_hooks.on_render(camera_state)     # depth package: worker runs while depth is on and viewed
+    depth_draw = not camera_state.yolo_enabled and depth_hooks.wants_view(camera_state)
     if config.DISPLAY_SCALE < 1.0:
         # resize allocates a new array, so the overlay can draw on it directly
         frame = cv2.resize(frame, (0, 0), fx=config.DISPLAY_SCALE, fy=config.DISPLAY_SCALE,
                            interpolation=cv2.INTER_AREA)
         coord_scale = config.DISPLAY_SCALE
-    elif camera_state.yolo_enabled:
+    elif camera_state.yolo_enabled or depth_draw:
         # The ESP draws in place; the reader frame is shared with the YOLO worker
         # and other clients, so draw on a private copy.
         frame = frame.copy()
@@ -207,6 +210,8 @@ def render_jpeg(camera_state, frame, frame_ts=None):
     classes = []
     if camera_state.yolo_enabled:
         frame, num_det, classes = yolo_process_render(camera_state, frame, frame_ts, coord_scale)
+    elif depth_draw:
+        depth_hooks.draw_view(camera_state, frame)   # with detection on, the ESP pipeline draws it
 
     stats["num_detections"] = int(num_det)
     stats["classes"] = classes

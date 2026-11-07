@@ -214,6 +214,16 @@ DEFAULT_ESP_SETTINGS = {
     "loiter_seconds": 120,
     "night_vision": "off",
     "night_vision_scanlines": False,
+    # --- depth (securitycam/depth): monocular depth + room map, all off by default ---
+    "depth": False,                    # run Depth Anything V2 Small while the camera is viewed
+    "depth_view": False,               # blend the colorized depth map into the video
+    "depth_view_opacity": 0.5,
+    "depth_view_palette": "turbo",     # turbo | inferno
+    "depth_rate": 3.0,                 # depth maps per second (0.5 .. 10)
+    "depth_size": 364,                 # model input long side in px (multiple of 14, 196 .. 518)
+    "depth_fov": 90,                   # horizontal FOV of a fixed camera in degrees (PTZ: lens calibration)
+    "depth_scale": 0.0,                # user calibration (z = scale / disparity); 0 = auto from person heights
+    # --- end depth ---
     # --- recognition (securitycam/recognition) ---
     "reid": True,                      # BoT-SORT ReID + re-entry id memory (needs tracking)
     "known_faces": False,              # label faces from the local gallery (data/faces)

@@ -5,10 +5,12 @@ export interface VisualPrefs {
   radar: boolean
   arrows: boolean
   infoCard: boolean
+  /** Top-down room map (depth package), default off. */
+  roomMap: boolean
 }
 
 const KEY = "securitycam.visual-prefs.v1"
-const DEFAULTS: VisualPrefs = { radar: true, arrows: true, infoCard: true }
+const DEFAULTS: VisualPrefs = { radar: true, arrows: true, infoCard: true, roomMap: false }
 
 function load(): VisualPrefs {
   try {

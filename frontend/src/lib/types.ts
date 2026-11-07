@@ -95,6 +95,17 @@ export interface Target {
   fall?: boolean
   /** Gestures currently being held (hold timers running). */
   gesture?: GestureKind[]
+  // --- depth package (only while the camera's Depth setting is on) ---
+  /** Metric-ish depth from the depth map (meters); `distance` uses it when calibrated. */
+  depth_m?: number
+  distance_src?: "depth" | "box"
+  distance_box?: number
+  /** Floor-plan position in meters: [x right, z ahead] of the camera (pan ignored). */
+  ground?: [number, number]
+  /** Same in world bearings (PTZ, anchored): stays put while the camera pans. */
+  ground_world?: [number, number]
+  ground_src?: "depth" | "box"
+  // --- end depth ---
 }
 
 export type Iff = "friend" | "foe" | "unknown"
@@ -112,6 +123,27 @@ export interface GestureEvent {
   ok: boolean
   ts: number
   age: number
+}
+
+/** Depth workload status of a camera (targets payload `depth`, `/api/cameras/<id>/depth`). */
+export interface DepthStatus {
+  enabled: boolean
+  state: "off" | "idle" | "downloading" | "loading" | "running" | "failed" | "stopped"
+  model: { state: "missing" | "downloading" | "ready" | "failed"; name: string; license: string }
+  device: string | null
+  device_label: string | null
+  source: "auto" | "user" | null
+  backend: string | null
+  input: string | null
+  latency_ms: number | null
+  fps: number | null
+  rate: number
+  calibration: { mode: "user" | "auto" | "none"; scale: number | null; samples: number; confidence: number; ready: boolean }
+  fov_h: number | null
+  error: string | null
+  note: string
+  /** Coarse floor occupancy [x, z, weight 0..1] in meters (world frame when `world`). */
+  scan?: { cell: number; world: boolean; pts: [number, number, number][] }
 }
 
 export interface TargetTag {
@@ -164,6 +196,8 @@ export interface TargetsResponse {
   view?: ViewFilter
   /** Recently fired gestures (pose ESP pack, only while gestures are on). */
   gestures?: GestureEvent[]
+  /** Depth workload status (depth package; only while Depth is on). */
+  depth?: DepthStatus
 }
 
 export interface Zone {

@@ -25,6 +25,8 @@ YOLO_REF: Dict[str, Dict[str, float]] = {
 SMALL_REF: Dict[str, Dict[str, float]] = {
     "faces": {"npu": 5.5, "igpu": 3.1, "cpu": 5.0},
     "plates": {"igpu": 3.1, "cpu": 5.7},
+    # depth package: Depth Anything V2 Small at 364x210 (cuda = onnxruntime CUDA)
+    "depth": {"npu": 22.8, "igpu": 17.5, "cpu": 80.0, "cuda": 9.0},
 }
 CHOPPY_MS = 66.0        # below ~15 inferences per second detection looks choppy
 SLOW_MS = 33.0
@@ -156,7 +158,26 @@ def _measured_auto(workload: str) -> Optional[float]:
     return None
 
 
+def _depth(dev: str) -> List[Dict[str, str]]:
+    """Depth workload (securitycam/depth): runs a few times per second only, so speed is rarely critical."""
+    out: List[Dict[str, str]] = []
+    ms, src = _ms("depth", dev, None)
+    if ms is not None:
+        out.append({"level": "info", "text": f"Depth takes ~{_fmt(ms)} ms per map on {_label(dev)} ({_src(src)}); "
+                                             "it runs a few times per second while Depth is on."})
+    if dev == "cuda":
+        out.append({"level": "info", "text": "Shares the NVIDIA GPU with detection (calls are serialized). "
+                                             "Auto prefers the Intel NPU to keep the GPU free."})
+    elif dev == "cpu":
+        out.append({"level": "warn", "text": "The CPU is the slowest option and competes with video decoding."})
+    elif dev in ("npu", "igpu"):
+        out.append({"level": "info", "text": "The first start compiles the model for this device (a few seconds)."})
+    return out
+
+
 def _small(workload: str, dev: str) -> List[Dict[str, str]]:
+    if workload == "depth":
+        return _depth(dev)
     out: List[Dict[str, str]] = []
     what = "Face models" if workload == "faces" else "Plate models"
     if dev == "cpu" and not devices.openvino_installed():

@@ -42,6 +42,10 @@ def _auto_device(workload: str) -> Dict[str, str]:
         return {"device": "cpu", "label": "CPU (PyTorch)"}
     if workload == "faces":
         return {"device": "cpu", "label": "CPU (OpenCV)"}
+    if workload == "depth":    # depth package: NPU > NVIDIA GPU > Intel GPU > CPU
+        from ..depth import bench as depth_bench, model as depth_model
+        dev = depth_model.auto_device()
+        return {"device": dev, "label": depth_bench.row_label(dev)}
     return {"device": "cpu", "label": "CPU (onnxruntime / OpenCV)"}
 
 
@@ -78,6 +82,16 @@ def _small_state(workload: str, eff: Dict[str, Any]) -> Dict[str, Any]:
     return {"state": "idle"}            # compiled on first use (when the feature is switched on)
 
 
+def _depth_state() -> Dict[str, Any]:
+    from ..depth import worker as depth_worker
+    states = [w.state for w in (depth_worker.get(cs.camera_id) for cs in state.list_camera_states()) if w]
+    if "running" in states:
+        return {"state": "active"}
+    if "loading" in states or "downloading" in states:
+        return {"state": "preparing"}
+    return {"state": "idle"}
+
+
 def _badge(dev: str) -> Optional[str]:
     return devices.SHORT.get(dev) if dev not in ("auto",) else None
 
@@ -98,7 +112,9 @@ def payload() -> Dict[str, Any]:
             "warnings": advice.notices(name, req, wl_model, eff),
             "benchmark": assignments.benchmark(name, wl_model or "_"),
         }
-        if name != "yolo":
+        if name == "depth":       # depth package: state of the running depth workers
+            item.update(_depth_state())
+        elif name != "yolo":
             item.update(_small_state(name, eff))
         workloads.append(item)
 

@@ -4,6 +4,7 @@ import { RotateCcw } from "lucide-react"
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
 import { CrosshairPanel } from "@/components/crosshair-panel"
+import { DepthPanel } from "@/components/depth-panel"
 import { fmtDuration } from "@/components/stage-visuals"
 import { api } from "@/lib/api"
 import type { EspSettings } from "@/lib/types"
@@ -28,6 +29,7 @@ const HUD_TOGGLES: { key: keyof VisualPrefs; label: string }[] = [
   { key: "radar", label: "Radar" },
   { key: "arrows", label: "Off-Screen Arrows" },
   { key: "infoCard", label: "Target Info Card" },
+  { key: "roomMap", label: "Room Map" },
 ]
 
 const ease = [0.22, 1, 0.36, 1] as const
@@ -90,6 +92,11 @@ export function OverlaysPanel({ cameraId, settings, onUpdate }: { cameraId?: str
         <p className="text-xs leading-relaxed text-muted-foreground">
           Auto switches on when the camera delivers an infrared picture and off again in daylight.
         </p>
+      </Section>
+
+      {/* depth package: monocular depth, depth view, calibration */}
+      <Section title="Depth">
+        <DepthPanel cameraId={cameraId} settings={settings} onUpdate={onUpdate} />
       </Section>
 
       <Section title="Crosshair">

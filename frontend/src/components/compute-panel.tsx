@@ -549,7 +549,7 @@ export function ComputeChip({ cameraId, onOpen }: { cameraId: string | null; onO
   }
   for (const w of s.workloads) {
     if (w.id !== "yolo" && w.assignment !== "auto") {
-      parts.push({ text: `${w.id === "faces" ? "Faces" : "Plates"} ${DEVICE_SHORT[w.assignment]}`, bad: w.effective.device !== w.assignment })
+      parts.push({ text: `${w.id === "plates" ? "Plates" : w.label} ${DEVICE_SHORT[w.assignment]}`, bad: w.effective.device !== w.assignment })
     }
   }
   if (!parts.length) parts.push({ text: "Custom", bad: false })
