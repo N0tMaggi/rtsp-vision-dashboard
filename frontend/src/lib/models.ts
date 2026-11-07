@@ -1,7 +1,10 @@
 /** Model catalog helpers for the model picker (family / task / size). */
 
 export type ModelFamily = "YOLO26" | "YOLO11" | "YOLOv8" | "RT-DETR" | "Other"
-export type ModelTask = "detect" | "pose"
+export type ModelTask = "detect" | "pose" | "segment"
+
+/** Task order in the picker (segment: body masks for Silhouette chams). */
+export const TASKS: ModelTask[] = ["detect", "pose", "segment"]
 
 export interface ParsedModel {
   name: string
@@ -38,12 +41,15 @@ export const SIZE_META: Record<string, { label: string; hint: string }> = {
 export const TASK_META: Record<ModelTask, { label: string; hint: string }> = {
   detect: { label: "Detect", hint: "All objects: people, cars, plates, pets" },
   pose: { label: "Pose", hint: "People only, with skeleton keypoints" },
+  segment: { label: "Segment", hint: "Body outline for Silhouette chams" },
 }
+
+const TASK_SUFFIX: Record<ModelTask, string> = { detect: "", pose: "-pose", segment: "-seg" }
 
 export function parseModel(name: string): ParsedModel {
   const stem = name.replace(/\.(pt|engine)$/, "")
-  const task: ModelTask = stem.endsWith("-pose") ? "pose" : "detect"
-  const base = stem.replace(/-pose$/, "")
+  const task: ModelTask = stem.endsWith("-pose") ? "pose" : stem.endsWith("-seg") ? "segment" : "detect"
+  const base = stem.replace(/-(pose|seg)$/, "")
   if (base.startsWith("rtdetr")) return { name, family: "RT-DETR", task, size: (base.split("-")[1] ?? "l").toUpperCase() }
   const family: ModelFamily = base.startsWith("yolo26")
     ? "YOLO26"
@@ -55,16 +61,16 @@ export function parseModel(name: string): ParsedModel {
   return { name, family, task, size: base.slice(-1).toUpperCase() }
 }
 
-/** Short human label, e.g. "YOLO26 M" / "YOLOv8 L Pose". */
+/** Short human label, e.g. "YOLO26 M" / "YOLOv8 L Pose" / "YOLO26 S Seg". */
 export function modelLabel(name: string | null | undefined): string {
   if (!name) return "Model"
   const m = parseModel(name)
-  return `${m.family === "Other" ? name.replace(/\.(pt|engine)$/, "") : m.family} ${m.size}${m.task === "pose" ? " Pose" : ""}`
+  return `${m.family === "Other" ? name.replace(/\.(pt|engine)$/, "") : m.family} ${m.size}${m.task === "pose" ? " Pose" : m.task === "segment" ? " Seg" : ""}`
 }
 
 /** Best default for this machine: medium on a CUDA GPU, nano on CPU. */
 export function recommendedModel(models: string[], cuda: boolean, task: ModelTask = "detect"): string | null {
-  const want = `yolo26${cuda ? "m" : "n"}${task === "pose" ? "-pose" : ""}.pt`
+  const want = `yolo26${cuda ? "m" : "n"}${TASK_SUFFIX[task]}.pt`
   return models.includes(want) ? want : null
 }
 
@@ -83,5 +89,17 @@ export function sizesFor(models: string[], family: ModelFamily, task: ModelTask)
 
 export function tasksFor(models: string[], family: ModelFamily): ModelTask[] {
   const set = new Set(models.map(parseModel).filter((m) => m.family === family).map((m) => m.task))
-  return (["detect", "pose"] as ModelTask[]).filter((t) => set.has(t))
+  return TASKS.filter((t) => set.has(t))
+}
+
+/** True for instance-segmentation models (masks for Silhouette chams). */
+export function isSegModel(name: string | null | undefined): boolean {
+  return !!name && parseModel(name).task === "segment"
+}
+
+/** The YOLO26 Seg model to switch to: same size as the current model when offered, else the recommendation. */
+export function segModelFor(models: string[], current: string | null | undefined, cuda: boolean): string | null {
+  const size = current ? parseModel(current).size : null
+  return (size && findModel(models, "YOLO26", "segment", size)) || recommendedModel(models, cuda, "segment") ||
+    models.find((n) => parseModel(n).task === "segment") || null
 }

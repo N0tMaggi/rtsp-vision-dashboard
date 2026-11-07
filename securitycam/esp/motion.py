@@ -294,4 +294,5 @@ def _snapshot(tr: Track, alpha: float, hist: Optional[List[HistoryPoint]]) -> De
         x1=x1, y1=y1, x2=x2, y2=y2, cx=cx, cy=cy, conf=tr.conf,
         keypoints=keypoints, kp_visible=d.kp_visible, history=history,
         alpha=alpha, vx=vx, vy=vy, track_key=tr.key, ref_height=int(obs[3] - obs[1]),
+        mask=d.mask,   # box-relative: drawn onto the displayed box = same warp as the keypoints above
     )

@@ -38,11 +38,11 @@ REID_FALLBACK_WEIGHTS = "yolo26n-cls.pt"
 
 
 def native_features(model) -> bool:
-    """True if BoT-SORT can reuse the detector's own features (YOLO .pt detect/pose models)."""
+    """True if BoT-SORT can reuse the detector's own features (YOLO .pt detect/pose/segment models)."""
     if type(model).__name__ == "RTDETR":
         return False
     ckpt = str(getattr(model, "ckpt_path", "") or "")
-    return ckpt.endswith(".pt") and getattr(model, "task", "detect") in ("detect", "pose")
+    return ckpt.endswith(".pt") and getattr(model, "task", "detect") in ("detect", "pose", "segment")
 
 
 def _classifier_tracker() -> Path:

@@ -35,6 +35,8 @@ ENUM_KEYS: dict[str, frozenset[str]] = {
     "heatmap_window": frozenset({"5m", "1h", "24h"}),
     "night_vision": frozenset({"off", "on", "auto"}),
     "face_detector": frozenset({"yunet", "haar"}),
+    # silhouette chams (securitycam/esp/silhouette.py)
+    "chams_mode": frozenset({"box", "silhouette", "outline", "silhouette_outline", "xray"}),
 }
 
 # Free-form id keys: key -> pattern ("" clears).
@@ -56,6 +58,7 @@ NUMERIC_KEYS: dict[str, tuple[float, float, str]] = {
     "abandoned_seconds": (5, 600, "int"),
     "face_match_threshold": (0.2, 0.8, "float"),
     "face_cluster_threshold": (0.3, 0.8, "float"),
+    "outline_glow": (0, 24, "int"),    # silhouette chams
 }
 
 

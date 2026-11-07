@@ -73,11 +73,13 @@ export interface EngineJob {
 export interface ModelInfo {
   name: string
   family: "YOLO26" | "YOLOv8" | "YOLO11" | "RT-DETR" | "Other"
-  task: "detect" | "pose"
+  task: "detect" | "pose" | "segment"
   size: string
   label: string
   tracking: boolean
   keypoints: boolean
+  /** Segment model: body masks for Silhouette chams. */
+  masks?: boolean
   weights_downloaded: boolean
   engine: boolean
   engine_size_mb: number | null

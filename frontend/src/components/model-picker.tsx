@@ -6,6 +6,7 @@ import {
   FAMILIES,
   SIZE_META,
   SIZE_ORDER,
+  TASKS,
   TASK_META,
   findModel,
   modelLabel,
@@ -155,7 +156,7 @@ export function ModelPicker({ models, value, onChange, disabled, cuda, device }:
         <Section label="Task">
           <Segmented
             id="mp-task"
-            options={(["detect", "pose"] as ModelTask[]).map((t) => ({ value: t, label: TASK_META[t].label, disabled: !tasks.includes(t) }))}
+            options={TASKS.map((t) => ({ value: t, label: TASK_META[t].label, disabled: !tasks.includes(t) }))}
             value={effTask}
             onChange={(v) => setTask(v as ModelTask)}
           />
