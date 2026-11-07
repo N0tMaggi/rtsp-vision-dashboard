@@ -120,12 +120,26 @@ class TagStore:
         self._tags: Dict[str, List[Dict[str, str]]] = {}
         self._touch: Dict[str, float] = {}               # track keys -> last use (monotonic)
         self._snap: Dict[str, Tuple[Tuple[str, str], ...]] = {}
+        # track key -> the durable key its tags went to. While the track lives its tags stay
+        # visible even if recognition flips; a corrected plate reading carries them along.
+        self._bound: Dict[str, str] = {}
+        self._bound_snap: Dict[str, str] = {}
         self.version = 0
 
     # ---- internals
     def _publish_locked(self) -> None:
         self._snap = {k: tuple((t["label"], t["color"]) for t in v) for k, v in self._tags.items() if v}
+        self._bound_snap = dict(self._bound)
         self.version += 1
+
+    def _bind_locked(self, tkey: str, key: str) -> None:
+        if tkey.startswith("t:") and not key.startswith("t:"):
+            self._bound[tkey] = key
+            self._touch[tkey] = time.monotonic()
+
+    def with_bound(self, keys: Sequence[str]) -> List[str]:
+        bound = self._bound_snap.get(keys[-1]) if keys else None
+        return list(keys) + [bound] if bound and bound not in keys else list(keys)
 
     def _changed_locked(self, persist: bool = True) -> None:
         self._publish_locked()
@@ -145,6 +159,7 @@ class TagStore:
         for k in [k for k, t in self._touch.items() if t < cutoff]:
             self._touch.pop(k, None)
             self._tags.pop(k, None)
+            self._bound.pop(k, None)
 
     # ---- reads
     def snapshot(self) -> Dict[str, Tuple[Tuple[str, str], ...]]:
@@ -191,8 +206,10 @@ class TagStore:
                 tags.append({"label": label, "color": color})
             if key.startswith("t:"):
                 self._touch[key] = time.monotonic()
+            else:
+                self._bind_locked(keys[-1], key)
             self._changed_locked(persist=not key.startswith("t:"))
-        return self.get(keys)
+        return self.get(self.with_bound(keys))
 
     def remove(self, keys: Sequence[str], label: Any) -> bool:
         label = clean_label(label)
@@ -200,7 +217,7 @@ class TagStore:
         removed = False
         with self._lock:
             persist = False
-            for k in keys:
+            for k in self.with_bound(keys):
                 tags = self._tags.get(k)
                 if not tags:
                     continue
@@ -219,27 +236,36 @@ class TagStore:
     def follow(self, keys: Sequence[str]) -> List[Dict[str, str]]:
         """Tags of a target; moves track tags onto a better identity once one is known."""
         snap = self._snap
-        tkey = keys[-1]
+        tkey, best = keys[-1], keys[0]
+        bound = self._bound_snap.get(tkey)
+        if bound is not None:
+            self._touch[tkey] = time.monotonic()
+            if bound != best and bound.startswith("v:") and best.startswith("v:") and snap.get(bound):
+                self.move(bound, best)           # the plate reading of this very car was corrected
         if len(keys) > 1 and tkey.startswith("t:") and snap.get(tkey):
             with self._lock:
                 track_tags = self._tags.pop(tkey, [])
-                self._touch.pop(tkey, None)
-                dst = self._tags.setdefault(keys[0], [])
+                dst = self._tags.setdefault(best, [])
                 have = {t["label"].casefold() for t in dst}
                 for t in track_tags:
                     if t["label"].casefold() not in have and len(dst) < MAX_TAGS_PER_ID:
                         dst.append(dict(t))
                         have.add(t["label"].casefold())
+                self._bind_locked(tkey, best)
                 self._changed_locked()
         elif snap.get(tkey):
             self._touch[tkey] = time.monotonic()
-        return self.get(keys)
+        return self.get(self.with_bound(keys))
 
     def move(self, src: str, dst: str) -> None:
-        """Identity changed (unknown face named / merged): its tags go along."""
+        """Identity changed (unknown face named / merged, plate corrected): its tags go along."""
         with self._lock:
+            for k, v in list(self._bound.items()):
+                if v == src:
+                    self._bound[k] = dst
             tags = self._tags.pop(src, None)
             if not tags:
+                self._publish_locked()
                 return
             out = self._tags.setdefault(dst, [])
             have = {t["label"].casefold() for t in out}
@@ -249,6 +275,8 @@ class TagStore:
 
     def drop(self, key: str) -> None:
         with self._lock:
+            for k in [k for k, v in self._bound.items() if v == key]:
+                del self._bound[k]
             if self._tags.pop(key, None) is not None:
                 self._changed_locked()
 
@@ -439,10 +467,11 @@ def target_keys(camera_state, target_id: int) -> List[str]:
 class ViewContext:
     """Per-frame snapshot for the ESP renderer: tag runs + solo / hidden filter (lookups only)."""
 
-    __slots__ = ("cam", "epoch", "infos", "snap", "solo", "hidden")
+    __slots__ = ("cam", "epoch", "infos", "snap", "solo", "hidden", "bound")
 
-    def __init__(self, cam, epoch, infos, snap, solo, hidden):
+    def __init__(self, cam, epoch, infos, snap, solo, hidden, bound=None):
         self.cam, self.epoch, self.infos, self.snap, self.solo, self.hidden = cam, epoch, infos, snap, solo, hidden
+        self.bound = bound or {}
 
     def _keys(self, det) -> List[str]:
         tid = det.track_key if det.track_key is not None else det.obj_id
@@ -465,7 +494,9 @@ class ViewContext:
         if not self.snap:
             return runs
         seen, extra = set(), []
-        for k in self._keys(det):
+        keys = self._keys(det)
+        b = self.bound.get(keys[-1]) if keys else None
+        for k in (keys + [b] if b else keys):
             for label, color in self.snap.get(k, ()):
                 f = label.casefold()
                 if f not in seen:
@@ -514,4 +545,4 @@ def prepare(camera_state, rc=None) -> Optional[ViewContext]:
     rt = peek_runtime(cam)
     epoch = rt.track_epoch if rt is not None else 0
     infos = rc.track_info if rc is not None and rc.track_info else ({} if rt is None else dict(rt.track_info))
-    return ViewContext(cam, epoch, infos, snap, solo, list(hidden))
+    return ViewContext(cam, epoch, infos, snap, solo, list(hidden), STORE._bound_snap)

@@ -78,6 +78,7 @@ def reset_tags():
     with tags.STORE._lock:
         tags.STORE._tags.clear()
         tags.STORE._touch.clear()
+        tags.STORE._bound.clear()
         tags.STORE._publish_locked()
 
 
@@ -172,6 +173,30 @@ class TagsAndView(unittest.TestCase):
                          .get_json()["owner"], "plate")
         self.assertIn("f:7", tags.STORE.dump()["tags"])
         self.assertIn("v:A8123C0", tags.STORE.dump()["tags"])   # OCR-confusion folded plate key
+
+    def test_tags_survive_recognition_changes_on_a_live_track(self):
+        now = time.monotonic()
+        with self.rt.lock:
+            self.rt.track_info[3] = TrackInfo(plate_best="62518", plate_reads=5, last_seen=now)
+            self.rt.track_info[1] = TrackInfo(name="Alice", person_id="alice", last_seen=now)
+        self.client.post(f"/api/cameras/{CAM}/targets/3/tags", json={"label": "Delivery"})
+        self.client.post(f"/api/cameras/{CAM}/targets/1/tags", json={"label": "VIP"})
+        with self.rt.lock:
+            self.rt.track_info[3].plate_best = "B25786"          # plate reading corrected (vote flipped)
+            self.rt.track_info[1].name, self.rt.track_info[1].person_id = "Bob", "bob"   # face flip
+        p = self.payload()
+        self.assertEqual([t["label"] for t in p[3]["tags"]], ["Delivery"])
+        self.assertEqual([t["label"] for t in p[1]["tags"]], ["VIP"])   # still shown on this track
+        dumped = tags.STORE.dump()["tags"]
+        self.assertIn("v:825786", dumped)                         # moved with the corrected plate
+        self.assertNotIn("v:62518", dumped)
+        self.assertIn("p:alice", dumped)                          # a misrecognition never re-labels people
+        self.assertNotIn("p:bob", dumped)
+        _, labels = self.render()
+        self.assertTrue(any("#VIP" in runs for runs in labels), labels)
+        r = self.client.delete(f"/api/cameras/{CAM}/targets/1/tags", json={"label": "vip"})
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn("p:alice", tags.STORE.dump()["tags"])
 
     def test_validate_drops_garbage(self):
         clean, warnings = tags.TagStore.validate({"tags": {
