@@ -11,6 +11,7 @@ import { StageVisuals } from "./stage-visuals"
 import { RoomMap } from "./room-map"
 import { CrosshairOverlay } from "./crosshair-overlay"
 import { GestureToasts } from "./gesture-toasts"   // pose ESP pack
+import { SoundHud } from "./sound-hud" // Sound ESP
 
 type Phase = "idle" | "connecting" | "live" | "error"
 
@@ -38,6 +39,8 @@ interface Props {
   onSnapshot?: () => void
   video?: { playing: boolean | null; toggle: () => void } | null
   notify?: (n: Notice) => void
+  /** Sound ESP: the camera's `sound` setting (shows the on-stage audio HUD). */
+  soundOn?: boolean
 }
 
 // Free area between header (~72px) and telemetry bar (~44px); the video is fitted inside.
@@ -489,6 +492,7 @@ export function Stage(props: Props) {
           {lineDraft && <TripwireDraft line={lineDraft} aspect={frameW && frameH ? frameW / frameH : 16 / 9} />}
         </svg>
       </motion.div>
+      {loaded && <SoundHud cameraId={camera?.id} on={Boolean(props.soundOn)} />}
       {loaded && <CrosshairOverlay view={view} width={rect.width} height={rect.height} targets={aiOn ? list : []} lockedId={lockedId} />}
       {loaded && aiOn && (   // pose ESP pack: gesture confirmations
         <GestureToasts view={view} width={rect.width} height={rect.height} targets={list} gestures={targets?.gestures} />

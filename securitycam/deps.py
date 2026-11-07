@@ -169,6 +169,14 @@ ASSETS = {
         "https://huggingface.co/onnx-community/depth-anything-v2-small/resolve/"
         "4472b7362082ad9968fee890ca0f1e5aca36b93d/onnx/model.onnx",
     ),
+    # --- Sound ESP (securitycam/audio) ---
+    # YAMNet (Google, Apache-2.0): AudioSet 521-class sound classifier, TFLite Task Library build
+    # (waveform in, class map embedded); read directly by OpenVINO
+    "sound_yamnet": (
+        "yamnet_classification.tflite",
+        "https://storage.googleapis.com/download.tensorflow.org/models/tflite/task_library/"
+        "audio_classification/android/lite-model_yamnet_classification_tflite_1.tflite",
+    ),
 }
 # Minimum sizes of large assets (a truncated / error-page download is rejected).
 ASSET_MIN_BYTES = {"depth_anything_v2_small": 90_000_000}

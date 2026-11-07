@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { Camera, Siren, X } from "lucide-react"
-import { KIND_LABEL, type AlarmEvent } from "@/lib/alerts"
+import { kindLabel, type AlarmEvent } from "@/lib/alerts"
 import { formatTime } from "./clip-player"
 
 const TOAST_MS = 7000
@@ -106,7 +106,7 @@ function AlarmToast({ event, onOpen, onDismiss }: { event: AlarmEvent; onOpen: (
           <span className="flex items-center gap-2 text-xs">
             <span className="font-semibold tracking-wide text-destructive">ALARM</span>
             <span className="text-muted-foreground">
-              {KIND_LABEL[event.kind]} · {event.camera_label ?? event.camera} · {formatTime(event.ts)}
+              {kindLabel(event.kind)} · {event.camera_label ?? event.camera} · {formatTime(event.ts)}
             </span>
           </span>
           <span className="block truncate text-sm">{event.message}</span>

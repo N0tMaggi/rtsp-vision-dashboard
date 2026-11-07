@@ -4,6 +4,7 @@ import type { CameraPose, NBox, Target } from "@/lib/types"
 import { useVisualPrefs } from "@/lib/visual-prefs"
 import { cn } from "@/lib/utils"
 import { TagChips } from "./stage-context"
+import { SoundRadarPings } from "./sound-hud" // Sound ESP
 
 /** The parts of useViewTransform() the HUD needs. */
 export interface ViewLike {
@@ -449,6 +450,7 @@ function Radar({
             )
           })}
         </AnimatePresence>
+        <SoundRadarPings cx={cx} cy={cy} r={R} />
         <circle cx={cx} cy={cy} r={2.5} fill="#ffd21f" />
         <text x={cx + R} y={H - 2} textAnchor="end" className="fill-muted-foreground" fontSize={9}>
           {world ? `${Math.round((((heading % 360) + 540) % 360) - 180)}° · ` : ""}

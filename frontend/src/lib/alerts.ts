@@ -48,7 +48,10 @@ export interface AlertsConfig {
   clip: { pre_s: number; post_s: number }
 }
 
-export type EventKind = "zone" | "tripwire" | "abandoned" | "plate" | "fall" | "gesture"
+/** Sound ESP events: "sound:<class>" (e.g. sound:glass_break) and "sound:loud". */
+export type SoundEventKind = `sound:${string}`
+
+export type EventKind = "zone" | "tripwire" | "abandoned" | "plate" | "fall" | "gesture" | SoundEventKind
 
 export interface AlarmEvent {
   id: string
@@ -146,3 +149,6 @@ export const KIND_LABEL: Record<EventKind, string> = {
   fall: "Fall",
   gesture: "Gesture",
 }
+
+/** Label of any event kind (sound kinds have no fixed entry in KIND_LABEL). */
+export const kindLabel = (kind: EventKind): string => KIND_LABEL[kind] ?? (kind.startsWith("sound:") ? "Sound" : kind)

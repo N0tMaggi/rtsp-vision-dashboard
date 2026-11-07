@@ -253,6 +253,8 @@ DEFAULT_ESP_SETTINGS = {
     "gesture_wave": True,
     "gesture_palm": True,
     "gesture_thumbs": True,
+    # --- Sound ESP (securitycam/audio): camera / video audio levels, labels, sound alarms ---
+    "sound": False,                    # opt-in; ffmpeg only runs while on AND the camera is on screen
 }
 
 

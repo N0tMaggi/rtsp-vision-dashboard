@@ -45,6 +45,13 @@ WORKLOADS: Dict[str, Dict[str, Any]] = {
         "devices": ("cuda", "npu", "igpu", "cpu"),
         "per_camera": False,
     },
+    # --- Sound ESP (securitycam/audio): its Auto = Intel NPU when present, else CPU (OpenVINO) ---
+    "sound": {
+        "label": "Sound",
+        "description": "YAMNet sound classification (Sound ESP), one inference per 0.5 s per camera.",
+        "devices": ("npu", "igpu", "cpu"),
+        "per_camera": False,
+    },
 }
 CHOICES = ("auto",) + devices.DEVICE_IDS
 NO_CUDA_REASON = "These models have no CUDA backend here. Auto already runs them on the CPU, which is fast enough."

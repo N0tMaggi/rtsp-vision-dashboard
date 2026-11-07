@@ -264,6 +264,7 @@ export default function App() {
                 onLock={lock}
                 onZoneDrawn={addZone}
                 onTripwireDrawn={addTripwire}
+                soundOn={Boolean(settings.sound)}
                 rightInset={rightInset}
                 onAimAt={ops.onAimAt}
                 bottomInset={video.bottomInset}

@@ -216,6 +216,8 @@ def create_app() -> Flask:
     app.register_blueprint(face_masks_blueprint)
     from .depth.api import blueprint as depth_blueprint  # monocular depth: status + user calibration
     app.register_blueprint(depth_blueprint)
+    from .audio.api import blueprint as sound_blueprint  # Sound ESP: audio levels, labels, sound alarms
+    app.register_blueprint(sound_blueprint)
     return app
 
 

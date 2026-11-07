@@ -46,6 +46,10 @@ def _auto_device(workload: str) -> Dict[str, str]:
         from ..depth import bench as depth_bench, model as depth_model
         dev = depth_model.auto_device()
         return {"device": dev, "label": depth_bench.row_label(dev)}
+    if workload == "sound":     # Sound ESP (securitycam/audio)
+        from ..audio.classifier import auto_label
+
+        return auto_label()
     return {"device": "cpu", "label": "CPU (onnxruntime / OpenCV)"}
 
 

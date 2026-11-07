@@ -10,6 +10,7 @@ import type { EventsResponse } from "./alerts"
 import type { CameraOverview, PtzStatus } from "./ops-api"
 import type { CameraStatus, TargetsResponse } from "./types"
 import type { Playback } from "./videos"
+import type { SoundPayload } from "./sound" // Sound ESP
 
 export interface PlatesSummary {
   total: number
@@ -29,6 +30,8 @@ export interface LiveTopics {
   plates: PlatesSummary
   overview: { cameras: CameraOverview[]; ts: number }
   ptz: PtzStatus
+  /** Sound ESP: only sent while the camera's `sound` setting is on */
+  sound: SoundPayload
 }
 
 export type LiveTopic = keyof LiveTopics
@@ -42,8 +45,8 @@ export type LiveTopic = keyof LiveTopics
  */
 export type LiveState = "idle" | "connecting" | "open" | "reconnecting" | "paused"
 
-const TOPICS: LiveTopic[] = ["status", "targets", "playback", "events", "plates", "overview", "ptz"]
-const PER_CAMERA = new Set<LiveTopic>(["status", "targets", "playback", "ptz"])
+const TOPICS: LiveTopic[] = ["status", "targets", "playback", "events", "plates", "overview", "ptz", "sound"]
+const PER_CAMERA = new Set<LiveTopic>(["status", "targets", "playback", "ptz", "sound"])
 /** No first event within this time (e.g. a buffering proxy) counts as a failed connect. */
 const FIRST_EVENT_MS = 4000
 const BACKOFF_MIN_MS = 1000
