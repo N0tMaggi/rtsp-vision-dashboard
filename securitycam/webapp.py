@@ -208,6 +208,8 @@ def create_app() -> Flask:
     app.register_blueprint(videos_blueprint)
     from .compute.api import blueprint as compute_blueprint  # compute devices: which hardware runs which workload
     app.register_blueprint(compute_blueprint)
+    from .enhance.api import blueprint as enhance_blueprint  # Enhance view: AI upscaling of a frame region
+    app.register_blueprint(enhance_blueprint)
     return app
 
 

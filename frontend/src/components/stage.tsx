@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { useViewTransform } from "@/hooks/use-view-transform"
 import { api } from "@/lib/api"
+import { registerEnhanceStage, viewportRegion } from "@/lib/enhance"
 import type { Camera, NBox, Target, TargetsResponse } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { StageToolbar, type Tool } from "./stage-toolbar"
@@ -119,6 +120,13 @@ export function Stage(props: Props) {
     if (rect.width > 0 && rect.height > 0) laidOut.current = true
   })
   const { reset, focus, zoomAt, panBy, toNormalized } = view
+
+  // Enhance view (X / toolbar / context menu) reads the visible part of the frame from here.
+  useEffect(() => {
+    if (!camera?.id || !loaded) return
+    const vt = view.view
+    return registerEnhanceStage({ cameraId: camera.id, label: camera.label, region: () => viewportRegion(vt.current, rect.width, rect.height) })
+  }, [camera?.id, camera?.label, loaded, view.view, rect.width, rect.height])
 
   // Layout or camera changed -> start unzoomed.
   useEffect(() => {

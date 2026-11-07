@@ -24,6 +24,7 @@ SecurityCam is a modular RTSP camera dashboard built with Flask, OpenCV, and YOL
 9. [API Reference](#api-reference)
 10. [ESP Features and Controls](#esp-features-and-controls)
     - [Video Analysis](#video-analysis)
+    - [Enhance](#enhance)
 11. [Model Management](#model-management)
     - [Compute devices](#compute-devices)
 12. [Performance Tuning](#performance-tuning)
@@ -707,6 +708,90 @@ Only enable URL sources on a server that untrusted people cannot reach.
 
 `/api/cameras` lists virtual cameras with `source_kind` `"file"` or `"url"` (`"rtsp"` for configured cameras).
 All mutating routes except the upload take JSON and pass the app-wide cross-site guard.
+
+## Enhance
+
+Pause a video (or zoom into any camera), then press **X**, click **Enhance** in the
+stage toolbar, or the sparkles button in the playback bar. The Enhance view captures
+the frame region that is on screen at full source resolution (raw pixels, no
+overlay; a paused video gives the paused frame, a live camera the newest frame at
+that moment) and upscales it 2× or 4×.
+
+> **AI upscaling invents plausible detail. Use for presentation and exports, not as evidence.**
+> This notice is always visible in the view, and every result is marked.
+
+- **Before / after** with a draggable divider; wheel zoom and drag pan stay in sync on both sides. The "before" side shows the real camera pixels (nearest-neighbour, nothing smoothed in).
+- **Model, scale, denoise**, device used, inference and total time. **Enhance Again** re-runs on the *same* captured pixels (compare models fairly); **New Capture** grabs the current frame.
+- **Exports**: *Download PNG* (watermarked + metadata), *Original Crop* (untouched camera pixels), *Copy* (watermarked; the browser needs HTTPS or localhost for image clipboard).
+- **Recent**: results stored under `data/enhanced/`, deletable.
+
+### Marking
+
+Every enhanced PNG gets
+
+- a band appended **below** the picture (it never covers content): `AI ENHANCED · <model> · <scale>x` and "details may be invented - not evidence". The preview can hide the band (B); exports always contain it;
+- a small yellow "AI" tag inside the top-left corner of the picture, so cropping the band off still leaves a mark;
+- PNG `tEXt` chunks: `Software`, `Title` (`AI ENHANCED`), `Description` ("AI-upscaled image - details may be invented, not evidence"), `AI-Enhanced`, `Model`, `Model-License`, `Scale`, `Denoise`, `Device`, `Source-Camera`, `Source-Timestamp` (plus video position / frame), `Region` (normalized and pixels), `Creation Time`, `Job`;
+- the same facts in `data/enhanced/<job>/meta.json` (plus timings and any fallback reason).
+
+The Lanczos baseline is labelled `UPSCALED (NO AI)` instead.
+
+### Models
+
+| Model | Type | Download | License / source |
+|---|---|---:|---|
+| Real-ESRGAN General v3 (`realesr-general-x4v3` + `realesr-general-wdn-x4v3`) | AI, 4× native, adjustable denoise (blends the two official weight sets) | 2 × 4.7 MB | BSD-3-Clause, Copyright (c) 2021 Xintao Wang - [xinntao/Real-ESRGAN release v0.2.5.0](https://github.com/xinntao/Real-ESRGAN/releases/tag/v0.2.5.0) |
+| Real-ESRGAN x4plus (`RealESRGAN_x4plus.pth`) | AI, 4× native, sharper, slower | 64 MB | BSD-3-Clause - [release v0.1.0](https://github.com/xinntao/Real-ESRGAN/releases/tag/v0.1.0) |
+| Lanczos + sharpen | classic, no AI | none | OpenCV |
+
+The official PyTorch weights are downloaded into `models/` on first use (in the
+background, like the face/plate models) and run with a small built-in
+re-implementation of the two network architectures - no extra pip packages. 2× is
+produced from the 4× result (area downscale). If a download fails or times out,
+the job falls back to Lanczos and says so.
+
+Devices: CUDA (FP16; every tile takes the process-wide GPU lock, so camera
+inference interleaves between tiles), else OpenVINO on the CPU (converted from
+PyTorch in memory), else PyTorch on the CPU. One job runs at a time; others queue
+and can be canceled.
+
+Measured on the development machine (RTX 5080, 640×360 crop → 2560×1440, warm model):
+
+| Model | CUDA FP16 | OpenVINO CPU | PyTorch CPU |
+|---|---:|---:|---:|
+| General v3 | 0.11 s | 0.82 s | 0.83 s |
+| x4plus | 0.37 s | 12.2 s | 13.9 s |
+
+The first run adds model loading (~0.2 s CUDA, 1-6 s OpenVINO conversion). Saving
+the PNG adds ~0.5-1.5 s for large outputs. VRAM stays bounded by the tile size
+(384 px input tiles).
+
+### Enhance settings (.env)
+
+| Variable | Default | Description |
+|---|---:|---|
+| `SECURITYCAM_ENHANCE_MAX_COUNT` | `40` | Results kept in `data/enhanced/` (oldest removed first) |
+| `SECURITYCAM_ENHANCE_MAX_AGE_DAYS` | `30` | Remove results older than this (0 = never) |
+| `SECURITYCAM_ENHANCE_DEVICE` | `auto` | `auto`, `cuda`, `openvino` or `cpu` |
+| `SECURITYCAM_ENHANCE_TILE` | `384` | Input tile edge in px (lower = less VRAM/RAM) |
+| `SECURITYCAM_ENHANCE_MAX_OUTPUT_MP` | `40` | Largest output in megapixels; bigger requests are refused |
+| `SECURITYCAM_ENHANCE_DOWNLOAD_WAIT_S` | `180` | How long a job waits for its model download before falling back |
+| `SECURITYCAM_ENHANCE_MAX_QUEUE` | `8` | Queued jobs at most |
+
+### Enhance API
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/cameras/<id>/enhance` | `{"region": [x1,y1,x2,y2] (normalized, optional), "model", "scale": 2 or 4, "denoise": 0..1, "device", "include_overlay", "source_job"}` -> `202 {"job"}` |
+| `GET` | `/api/enhance` | Results (newest first), models, default device, notice |
+| `GET` | `/api/enhance/<job>` | Status (`queued`, `downloading`, `loading`, `running`, `saving`, `done`, `failed`, `canceled`), progress, metadata |
+| `POST` | `/api/enhance/<job>/cancel` | Cancel (JSON body `{}`) |
+| `DELETE` | `/api/enhance/<job>` | Delete a result |
+| `GET` | `/api/enhance/<job>/<file>` | `original.png`, `enhanced.png`, `overlay.png`, `meta.json`; `?download=1` for an attachment |
+
+Frontend entry point (e.g. for a context menu): `openEnhance({ cameraId, region })`
+from `frontend/src/lib/enhance.ts`; both arguments are optional (stage camera /
+current zoom viewport), or dispatch `new CustomEvent("securitycam:open-enhance", { detail: { cameraId, region } })` on `window`.
 
 ## Model Management
 
