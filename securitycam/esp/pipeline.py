@@ -144,7 +144,8 @@ def draw_custom_esp(camera_state, frame, results, frame_ts: Optional[float] = No
 
     # ---- frame-level effects (on the raw image, before any overlay) -----------------
     if s.face_blur and faces:
-        R.anonymize_faces(frame, faces, s.face_blur_mode, s.face_blur_strength)
+        R.anonymize_faces(frame, faces, s.face_blur_mode, s.face_blur_strength,
+                          image=s.face_blur_image, fit=s.face_blur_image_fit, underlay=s.face_blur_image_underlay)
     if s.thermal:
         R.apply_thermal(frame, gray)
     visuals.frame_effects(frame, camera_state, vs, t_frame, frame_idx, skip_night=s.thermal)

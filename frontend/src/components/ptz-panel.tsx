@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "motion/react"
 import { Anchor, Copy, Crosshair, Navigation, Plus, Ruler, Trash2 } from "lucide-react"
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
+import { AutoTrackSection } from "@/components/autotrack-section"
 import type { PtzControls } from "@/hooks/use-ptz"
 import type { PoseStatus, PtzSettings, PtzStatus } from "@/lib/ops-api"
 import { cn } from "@/lib/utils"
@@ -102,6 +103,8 @@ export function PtzPanel({ ptz, mode, onModeChange }: Props) {
           </div>
         </>
       )}
+
+      {s.autotrack && <AutoTrackSection status={s} />}
 
       {s.pose && (s.state === "ready" || s.pose.ptz_known) && <AnchorSection ptz={ptz} status={s} pose={s.pose} />}
 

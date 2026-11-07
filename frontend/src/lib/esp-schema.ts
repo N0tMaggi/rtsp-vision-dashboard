@@ -80,6 +80,7 @@ export const FACE_BLUR_MODES = [
   { value: "blur", label: "Blur" },
   { value: "pixelate", label: "Pixel" },
   { value: "blackbox", label: "Black Box" },
+  { value: "image", label: "Image" },
 ] as const
 
 export const BOX_STYLES = [

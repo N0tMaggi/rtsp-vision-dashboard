@@ -55,6 +55,9 @@ export interface CameraStatus {
 /** Normalized box [x1, y1, x2, y2], 0..1 relative to the source frame. */
 export type NBox = [number, number, number, number]
 
+/** Body points a crosshair / PTZ auto-track can aim at. Persons have all, other objects only "center". */
+export type AimKey = "head" | "face" | "neck" | "chest" | "belly" | "groin" | "feet" | "center"
+
 export interface Target {
   id: number
   label: string
@@ -77,6 +80,9 @@ export interface Target {
   identity?: TargetIdentity
   /** Hidden by the camera's solo / hide view filter (visual only). */
   hidden?: boolean
+  /** Newer backends: body points, normalized like `box` (pose keypoints or box fractions). */
+  aim?: Partial<Record<AimKey, [number, number]>>
+  aim_src?: "pose" | "box"
 }
 
 export interface TargetTag {

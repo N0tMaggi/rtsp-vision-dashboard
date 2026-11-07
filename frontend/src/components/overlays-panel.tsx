@@ -3,6 +3,7 @@ import { motion } from "motion/react"
 import { RotateCcw } from "lucide-react"
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
+import { CrosshairPanel } from "@/components/crosshair-panel"
 import { fmtDuration } from "@/components/stage-visuals"
 import { api } from "@/lib/api"
 import type { EspSettings } from "@/lib/types"
@@ -89,6 +90,10 @@ export function OverlaysPanel({ cameraId, settings, onUpdate }: { cameraId?: str
         <p className="text-xs leading-relaxed text-muted-foreground">
           Auto switches on when the camera delivers an infrared picture and off again in daylight.
         </p>
+      </Section>
+
+      <Section title="Crosshair">
+        <CrosshairPanel />
       </Section>
 
       <Section title="HUD">

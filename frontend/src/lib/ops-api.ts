@@ -1,5 +1,5 @@
 /** API + types for operation & persistence: presets, schedules, backup, grid overview, PTZ. */
-import type { EspSettings } from "./types"
+import type { AimKey, EspSettings } from "./types"
 
 export interface Preset {
   id: string
@@ -111,6 +111,44 @@ export interface PoseStatus {
   calibration?: { state: "idle" | "running" | "done" | "failed"; message?: string; fov_h?: number; fov_v?: number }
 }
 
+export type AutoTrackState = "off" | "waiting_ptz" | "searching" | "tracking" | "holding" | "lost" | "paused"
+
+/** PTZ auto-track settings (backend: per camera, persisted). */
+export interface AutoTrackConfig {
+  enabled: boolean
+  mode: "locked" | "auto"
+  aim: AimKey
+  /** Half-size of the central framing window, normalized (0.03..0.45). */
+  deadzone: number
+  gain: number
+  max_speed: number
+  invert_pan: boolean
+  invert_tilt: boolean
+  auto_zoom: boolean
+  zoom_target: number
+  lost_timeout_s: number
+  manual_pause_s: number
+}
+
+export interface AutoTrackStatus {
+  state: AutoTrackState
+  target_id: number | null
+  target_label: string | null
+  /** Aim point of the tracked target, normalized frame coords. */
+  aim_point: [number, number] | null
+  /** Aim point minus frame center, normalized. */
+  error: [number, number] | null
+  /** Last sent pan / tilt / zoom speed. */
+  velocity: [number, number, number]
+  since: number
+  reason: string
+}
+
+export interface AutoTrack {
+  config: AutoTrackConfig
+  status: AutoTrackStatus
+}
+
 export interface PtzStatus {
   available: boolean
   enabled: boolean
@@ -128,6 +166,8 @@ export interface PtzStatus {
   moving: boolean
   /** Newer backends: world-anchoring state. */
   pose?: PoseStatus
+  /** Newer backends: PTZ auto-track (absent = not supported). */
+  autotrack?: AutoTrack
 }
 
 const cam = (id: string) => `/api/cameras/${encodeURIComponent(id)}`
@@ -190,6 +230,11 @@ export const opsApi = {
   ptzReanchor: (id: string) => send<{ ok: boolean; pose: PoseStatus }>(`${cam(id)}/ptz/pose/reanchor`),
   ptzSyncOnvif: (id: string) => send<{ ok: boolean; pose: PoseStatus }>(`${cam(id)}/ptz/pose/sync`),
   ptzCalibrate: (id: string, degrees = 20) => send<{ ok: boolean; pose: PoseStatus }>(`${cam(id)}/ptz/pose/calibrate`, { degrees }),
+  autotrackPatch: (id: string, patch: Partial<AutoTrackConfig>) =>
+    send<{ ok: boolean; autotrack: AutoTrack }>(`${cam(id)}/ptz/autotrack`, patch, "PATCH"),
+  /** Lock + track a target in "locked" mode; null switches tracking off. 409 target_not_visible. */
+  autotrackTarget: (id: string, targetId: number | null) =>
+    send<{ ok: boolean; autotrack: AutoTrack; locked: number | null }>(`${cam(id)}/ptz/autotrack/target`, { target_id: targetId }),
 }
 
 export const TILE_WIDTHS = [320, 480, 640, 960, 1280] as const

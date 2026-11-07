@@ -496,13 +496,17 @@ def draw_head(frame: np.ndarray, det: Detection, color: BGR, st: Style) -> None:
 FACE_PAD = 0.25          # grow face boxes by 25% per side: Haar boxes are tight (no hair/chin)
 
 
-def anonymize_faces(frame: np.ndarray, faces: Sequence[FaceBox], mode: str, strength: int) -> None:
+def anonymize_faces(frame: np.ndarray, faces: Sequence[FaceBox], mode: str, strength: int,
+                    image: str = "", fit: str = "cover", underlay: bool = True) -> None:
     """
     Hide faces in place.
 
-    mode: "blur" (heavy, size-relative blur), "pixelate" (coarse mosaic) or
-    "blackbox" (solid black). strength 1..100 scales blur/mosaic relative to the
-    face size, so it looks the same for near and far faces; blackbox ignores it.
+    mode: "blur" (heavy, size-relative blur), "pixelate" (coarse mosaic),
+    "blackbox" (solid black) or "image" (custom cover image ``image``, see
+    face_masks.py; blurred underneath when ``underlay`` so transparent parts
+    never reveal the face, black box if the image is missing). strength 1..100
+    scales blur/mosaic relative to the face size, so it looks the same for near
+    and far faces; blackbox ignores it.
     """
     p = min(1.0, max(0.0, (int(strength) - 1) / 99.0))
     h, w = frame.shape[:2]
@@ -513,6 +517,16 @@ def anonymize_faces(frame: np.ndarray, faces: Sequence[FaceBox], mode: str, stre
             continue
         x, y, rw, rh = rect
         roi = frame[y:y + rh, x:x + rw]
+        if mode == "image":
+            from .. import face_masks
+
+            if face_masks.load(image) is None:
+                roi[:] = 0                    # never fall back to the bare face
+                continue
+            if underlay:
+                _blur_roi(roi, p, feather=False)
+            face_masks.composite(roi, image, fit)
+            continue
         if mode == "blackbox":
             roi[:] = 0
             continue
@@ -524,16 +538,25 @@ def anonymize_faces(frame: np.ndarray, faces: Sequence[FaceBox], mode: str, stre
             small = cv2.resize(roi, (sw, sh), interpolation=cv2.INTER_AREA)
             roi[:] = cv2.resize(small, (rw, rh), interpolation=cv2.INTER_NEAREST)
             continue
-        # blur: shrink hard, blur, scale back up -> strong, cheap, size-independent.
-        # 1% keeps ~1/18 of the resolution (features already gone), 100% ~1/80.
-        factor = 0.055 - (0.055 - 0.0125) * p
-        sw, sh = max(2, round(rw * factor)), max(2, round(rh * factor))
-        small = cv2.resize(roi, (sw, sh), interpolation=cv2.INTER_AREA)
-        small = cv2.GaussianBlur(small, (3, 3), 0)
-        blurred = cv2.resize(small, (rw, rh), interpolation=cv2.INTER_CUBIC)
-        # Soft elliptical edge so it reads as a face mask, not a square; core fully covered.
-        m_in, m_out = _face_masks(rw, rh)
-        roi[:] = cv2.blendLinear(blurred, roi, m_in, m_out)
+        _blur_roi(roi, p)
+
+
+def _blur_roi(roi: np.ndarray, p: float, feather: bool = True) -> None:
+    """Heavy size-relative blur of ``roi`` in place (p = strength 0..1)."""
+    rh, rw = roi.shape[:2]
+    # shrink hard, blur, scale back up -> strong, cheap, size-independent.
+    # 1% keeps ~1/18 of the resolution (features already gone), 100% ~1/80.
+    factor = 0.055 - (0.055 - 0.0125) * p
+    sw, sh = max(2, round(rw * factor)), max(2, round(rh * factor))
+    small = cv2.resize(roi, (sw, sh), interpolation=cv2.INTER_AREA)
+    small = cv2.GaussianBlur(small, (3, 3), 0)
+    blurred = cv2.resize(small, (rw, rh), interpolation=cv2.INTER_CUBIC)
+    if not feather:
+        roi[:] = blurred
+        return
+    # Soft elliptical edge so it reads as a face mask, not a square; core fully covered.
+    m_in, m_out = _face_masks(rw, rh)
+    roi[:] = cv2.blendLinear(blurred, roi, m_in, m_out)
 
 
 _mask_cache: dict = {}

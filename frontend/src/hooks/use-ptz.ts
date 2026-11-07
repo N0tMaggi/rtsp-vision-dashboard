@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useLiveTopic, useShouldPoll } from "@/hooks/use-live-stream"
 import { api } from "@/lib/api"
+import { publishPtz } from "@/lib/autotrack"
 import { opsApi, type PtzSettings, type PtzStatus } from "@/lib/ops-api"
 
 const POLL_MS = 1500
@@ -53,13 +54,18 @@ export function usePtz(cameraId: string | null, active: boolean, keyboard: boole
 
   useLiveTopic("ptz", setStatus, Boolean(cameraId))
 
-  const fast = Boolean(status?.pose?.moving || status?.pose?.calibration?.state === "running")
+  // stage HUD (crosshair, auto-track chip, context menu) reads the same status
+  useEffect(() => publishPtz(cameraId, status), [cameraId, status])
+
+  const tracking = Boolean(status?.autotrack?.config.enabled)
+  const fast = Boolean(status?.pose?.moving || status?.pose?.calibration?.state === "running" || (tracking && status?.moving))
   useEffect(() => {
-    if (!active || !poll) return
+    // auto-track running: keep the status fresh even with the panel closed
+    if (!(active || tracking) || !poll) return
     void refresh()
     const t = window.setInterval(() => void refresh(), fast ? POLL_FAST_MS : POLL_MS)
     return () => window.clearInterval(t)
-  }, [active, fast, refresh, poll])
+  }, [active, tracking, fast, refresh, poll])
 
   const connect = useCallback(async () => {
     if (!cameraId) return

@@ -212,6 +212,8 @@ def create_app() -> Flask:
     app.register_blueprint(enhance_blueprint)
     from .context_api import blueprint as context_blueprint  # right-click menu: tags, solo/hide, manual plates
     app.register_blueprint(context_blueprint)
+    from .face_masks import blueprint as face_masks_blueprint  # custom face-cover images
+    app.register_blueprint(face_masks_blueprint)
     return app
 
 

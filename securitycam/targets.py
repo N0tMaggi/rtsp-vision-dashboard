@@ -15,6 +15,7 @@ import time
 from typing import Any, Optional
 
 from . import anchor
+from .esp import aim as _aim
 from .esp import motion, trackstats
 from .esp.pipeline import _esp_lock
 from .validation import ZONE_DEFAULT_COLOR, ZoneError, parse_zone_patch
@@ -66,13 +67,17 @@ def _visible_targets_locked(camera_state, t: float) -> list[dict[str, Any]]:
         y2 = min(1.0, max(0.0, box[3] / fh))
         if x2 <= x1 or y2 <= y1:
             continue
+        aim, aim_src = _aim.compute(tr, box, fw, fh)
         out.append({
             "id": int(key),
             "label": det.cls_name,
             "conf": round(float(tr.conf), 3),
             "box": [round(x1, 4), round(y1, 4), round(x2, 4), round(y2, 4)],
+            "aim": _aim.smoothed(camera_state, key, aim, t),
+            "aim_src": aim_src,
             **trackstats.target_fields(camera_state, key, tr, t),
         })
+    _aim.prune(camera_state, st.tracks)
     return out
 
 

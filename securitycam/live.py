@@ -63,6 +63,7 @@ PLATES_S = 1.5
 OVERVIEW_S = 1.0
 PTZ_MOVING_S = 0.4
 PTZ_IDLE_S = 1.5
+PTZ_AUTOTRACK_S = 0.5      # auto-track status stays live while it is enabled
 
 _MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
 
@@ -239,7 +240,9 @@ def _ptz_topic(cs) -> Topic:
         p = snap.payload if snap is not None and isinstance(snap.payload, dict) else {}
         pose = p.get("pose") or {}
         fast = bool(p.get("moving") or pose.get("moving") or (pose.get("calibration") or {}).get("state") == "running")
-        return PTZ_MOVING_S if fast else PTZ_IDLE_S
+        if fast:
+            return PTZ_MOVING_S
+        return PTZ_AUTOTRACK_S if ((p.get("autotrack") or {}).get("config") or {}).get("enabled") else PTZ_IDLE_S
 
     return Topic("ptz", interval, poll)
 

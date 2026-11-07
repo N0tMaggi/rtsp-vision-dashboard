@@ -86,12 +86,13 @@ def extract_detections(results: Any, settings) -> List[Detection]:
     names = getattr(r, "names", {}) or {}
 
     kp_xy = kp_conf = None
-    if settings.needs_keypoints:
-        kp = getattr(r, "keypoints", None)
-        if kp is not None and getattr(kp, "xy", None) is not None:
-            kp_xy = _to_numpy(kp.xy)
-            if getattr(kp, "conf", None) is not None:
-                kp_conf = _to_numpy(kp.conf)
+    # Keypoints are always taken when the model has them (cheap: one transfer per result):
+    # besides the skeleton / head overlays they drive the aim points of the targets API.
+    kp = getattr(r, "keypoints", None)
+    if kp is not None and getattr(kp, "xy", None) is not None:
+        kp_xy = _to_numpy(kp.xy)
+        if getattr(kp, "conf", None) is not None:
+            kp_conf = _to_numpy(kp.conf)
 
     detections: List[Detection] = []
     for i in range(len(xyxy)):

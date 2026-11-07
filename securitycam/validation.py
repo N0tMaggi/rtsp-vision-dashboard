@@ -30,10 +30,16 @@ COLOR_KEYS = frozenset(
 
 ENUM_KEYS: dict[str, frozenset[str]] = {
     "box_style": frozenset({"full", "corner", "3d"}),
-    "face_blur_mode": frozenset({"blur", "pixelate", "blackbox"}),
+    "face_blur_mode": frozenset({"blur", "pixelate", "blackbox", "image"}),
+    "face_blur_image_fit": frozenset({"cover", "contain", "stretch"}),
     "heatmap_window": frozenset({"5m", "1h", "24h"}),
     "night_vision": frozenset({"off", "on", "auto"}),
     "face_detector": frozenset({"yunet", "haar"}),
+}
+
+# Free-form id keys: key -> pattern ("" clears).
+ID_KEYS: dict[str, re.Pattern] = {
+    "face_blur_image": re.compile(r"^(?:[a-f0-9]{12})?$"),
 }
 
 # key -> (min, max, kind); kind is "float", "int" or "odd_int".
@@ -54,9 +60,9 @@ NUMERIC_KEYS: dict[str, tuple[float, float, str]] = {
 
 
 def _check_coverage() -> None:
-    covered = BOOL_KEYS | COLOR_KEYS | set(ENUM_KEYS) | set(NUMERIC_KEYS)
+    covered = BOOL_KEYS | COLOR_KEYS | set(ENUM_KEYS) | set(NUMERIC_KEYS) | set(ID_KEYS)
     missing = set(DEFAULT_ESP_SETTINGS) - covered
-    unknown = (set(ENUM_KEYS) | set(NUMERIC_KEYS)) - set(DEFAULT_ESP_SETTINGS)
+    unknown = (set(ENUM_KEYS) | set(NUMERIC_KEYS) | set(ID_KEYS)) - set(DEFAULT_ESP_SETTINGS)
     if missing or unknown:
         raise RuntimeError(
             f"ESP validator out of sync with DEFAULT_ESP_SETTINGS: "
@@ -122,6 +128,8 @@ def _validator_for(key: str) -> Callable[[Any], Any] | None:
         return _as_color
     if key in ENUM_KEYS:
         return lambda v, valid=ENUM_KEYS[key]: _as_enum(v, valid)
+    if key in ID_KEYS:
+        return lambda v, rx=ID_KEYS[key]: v.strip() if isinstance(v, str) and rx.match(v.strip()) else _INVALID
     if key in NUMERIC_KEYS:
         lo, hi, kind = NUMERIC_KEYS[key]
         return lambda v: _as_number(v, lo, hi, kind)

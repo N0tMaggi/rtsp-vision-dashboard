@@ -14,6 +14,7 @@ import {
   Pause,
   Play,
   RectangleHorizontal,
+  ScanEye,
   ScanFace,
   ScanText,
   Slash,
@@ -28,6 +29,7 @@ import { contextApi, contextError, type FrozenFrame, type ManualRead, type TagCa
 import { recognitionApi, errorText, type FaceCandidate, type Person } from "@/lib/recognition"
 import type { Camera, NBox, Target, TargetTag, ViewFilter } from "@/lib/types"
 import { openEnhance } from "@/lib/enhance"
+import { trackTarget, useAutoTrack } from "@/lib/autotrack"
 import { videosApi } from "@/lib/videos"
 import { cn } from "@/lib/utils"
 
@@ -120,6 +122,7 @@ export function useStageContext(o: Options) {
   const cameraId = o.camera?.id ?? null
   const isFile = o.camera?.source_kind === "file"
   const { notify } = o
+  const autoTrack = useAutoTrack()
 
   // Camera switch: drop menu + annotation.
   useEffect(() => {
@@ -214,6 +217,21 @@ export function useStageContext(o: Options) {
           window.setTimeout(() => o.onFollowChange(true), 0)
         },
       })
+      const track = autoTrack.autotrack
+      if (track && autoTrack.cameraId === cameraId) {
+        const tracking = track.config.enabled && track.config.mode === "locked" && track.status.target_id === target.id
+        out.push({
+          kind: "item",
+          id: "ptz-track",
+          label: tracking ? "Stop PTZ Tracking" : "Track with PTZ",
+          icon: ScanEye,
+          shortcut: locked ? "Shift+T" : undefined,
+          active: tracking,
+          disabled: !autoTrack.ready,
+          hint: autoTrack.ready ? "The PTZ camera turns to keep this target in frame." : "Needs a connected PTZ camera.",
+          onSelect: () => void trackTarget(tracking ? null : target.id).then((err) => err && notify?.({ title: err, tone: "error" })),
+        })
+      }
       out.push({ kind: "separator", id: "s1" })
       out.push({
         kind: "item",
@@ -348,7 +366,7 @@ export function useStageContext(o: Options) {
       out.push({ kind: "item", id: "clear", label: "Show Everyone", icon: Users, hint: VISUAL_ONLY, onSelect: () => view("clear") })
     }
     return out
-  }, [menu, target, o, cameraId, view, notify, isFile, startMarkPlate])
+  }, [menu, target, o, cameraId, view, notify, isFile, startMarkPlate, autoTrack])
 
   const overlay: ReactNode = (
     <>

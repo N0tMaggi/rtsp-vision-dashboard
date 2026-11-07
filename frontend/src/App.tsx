@@ -23,6 +23,7 @@ import { usePlateLog } from "@/hooks/use-plate-log"
 import { useTargets } from "@/hooks/use-targets"
 import { useWorkspace } from "@/hooks/use-workspace"
 import { alertsApi, type AlarmEvent } from "@/lib/alerts"
+import { OPEN_AUTOTRACK_EVENT, OPEN_CROSSHAIR_EVENT } from "@/lib/autotrack"
 import { OPEN_COMPUTE_EVENT } from "@/lib/compute"
 import { api } from "@/lib/api"
 import { OPEN_PLATE_LOG_EVENT, plateLogApi, type PlateLogEntry } from "@/lib/platelog"
@@ -70,6 +71,17 @@ export default function App() {
   useEffect(() => {
     loadCameras().catch(() => setLoadError("The SecurityCam server is not responding. Start it with python main.py, then reload this page."))
   }, [loadCameras])
+
+  // Auto-track chip / crosshair shortcut open the menu (the menu picks the category).
+  useEffect(() => {
+    const show = () => setMenuOpen(true)
+    window.addEventListener(OPEN_AUTOTRACK_EVENT, show)
+    window.addEventListener(OPEN_CROSSHAIR_EVENT, show)
+    return () => {
+      window.removeEventListener(OPEN_AUTOTRACK_EVENT, show)
+      window.removeEventListener(OPEN_CROSSHAIR_EVENT, show)
+    }
+  }, [])
 
   // M toggles the menu, like an in-game overlay.
   useEffect(() => {

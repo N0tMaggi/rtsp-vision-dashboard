@@ -1,9 +1,12 @@
 import { AnimatePresence, motion } from "motion/react"
 import { Crosshair, Minus, MousePointer2, Plus, RotateCcw, Slash, Sparkles, SquareDashed, X } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { useAutoTrack } from "@/lib/autotrack"
 import { openEnhance, useEnhanceState } from "@/lib/enhance"
 import type { Target } from "@/lib/types"
 import { cn } from "@/lib/utils"
+import { AutoTrackChip, PtzTrackButton, useAutoTrackShortcut } from "./autotrack-chip"
+import type { Notice } from "./stage-context"
 
 export type Tool = "select" | "zone" | "tripwire"
 
@@ -20,6 +23,7 @@ interface Props {
   follow: boolean
   onFollowChange: (f: boolean) => void
   onUnlock: () => void
+  notify?: (n: Notice) => void
 }
 
 const spring = { type: "spring", stiffness: 420, damping: 32 } as const
@@ -27,6 +31,8 @@ const spring = { type: "spring", stiffness: 420, damping: 32 } as const
 export function StageToolbar(p: Props) {
   const { videoPaused } = useEnhanceState()
   const showEnhance = p.zoom > 1.01 || videoPaused
+  useAutoTrackShortcut(p.lockedId, p.notify)
+  const trackingOn = Boolean(useAutoTrack().autotrack?.config.enabled)
   let hint: string
   if (p.tool === "tripwire") hint = "Drag a line to create a tripwire. Esc cancels."
   else if (p.tool === "zone") hint = "Drag a rectangle to create a zone. Esc cancels."
@@ -40,6 +46,9 @@ export function StageToolbar(p: Props) {
       onPointerDown={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
     >
+      <AnimatePresence>
+        {trackingOn && <AutoTrackChip key="autotrack" notify={p.notify} />}
+      </AnimatePresence>
       <AnimatePresence>
         {p.lockedId !== null && (
           <motion.div
@@ -65,6 +74,7 @@ export function StageToolbar(p: Props) {
             >
               <Crosshair className="size-3.5" /> Follow
             </button>
+            <PtzTrackButton lockedId={p.lockedId} notify={p.notify} />
             <button
               type="button"
               onClick={p.onUnlock}

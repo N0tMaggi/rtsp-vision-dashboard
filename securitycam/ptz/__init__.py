@@ -26,7 +26,7 @@ import threading
 from typing import Any
 
 from .. import config, persistence
-from . import pose
+from . import autotrack, pose
 from .controller import PtzBusy, PtzController, PtzNotReady, PtzUnsupportedOp  # noqa: F401
 from .onvif_backend import INSTALL_HINT, OnvifBackend, onvif_available
 
@@ -197,6 +197,7 @@ def status(camera_id: str) -> dict[str, Any]:
         "configured": configured(camera_id),
         "port": port_for(camera_id),
         "settings": dict(settings_for(camera_id)),
+        "autotrack": autotrack.payload(camera_id),
     }
     if not base["available"] or not base["configured"]:
         base.update({"state": "unavailable", "error": "", "error_kind": "", "retry_in": 0, "caps": {}, "presets": [],
@@ -216,6 +217,7 @@ def reset() -> None:
         _controllers.clear()
         _settings.clear()
     pose.reset()
+    autotrack.reset()
 
 
 # ---------------------------------------------------------------------------- persistence section
@@ -225,6 +227,9 @@ def _dump() -> dict[str, Any]:
     poses = {cam: f.dump() for cam, f in list(pose._fusions.items()) if f.ptz_known}
     if poses:
         out["pose"] = poses
+    tracks = autotrack.dump()
+    if tracks:
+        out["autotrack"] = tracks
     return out
 
 
@@ -242,6 +247,10 @@ def _validate(raw: Any) -> tuple[dict[str, Any], list[str]]:
     poses = pose.clean_dump(raw.get("pose"))
     if poses:
         clean["pose"] = poses
+    tracks, track_warnings = autotrack.clean_dump(raw.get("autotrack"))
+    warnings.extend(track_warnings)
+    if tracks:
+        clean["autotrack"] = tracks
     return clean, warnings
 
 
@@ -257,6 +266,7 @@ def _load(clean: dict[str, Any]) -> None:
                 current.update(merged)   # controllers hold a reference to this dict
     for cam, data in clean.get("pose", {}).items():
         pose.get(cam).restore(data)
+    autotrack.load(clean.get("autotrack", {}))
 
 
 def register() -> None:

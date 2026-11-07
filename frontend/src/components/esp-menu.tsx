@@ -1,7 +1,8 @@
-import { useEffect, useState, type ComponentType, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { Box, Fingerprint, Microchip, Palette, Radar, Route, ScanFace, Siren, SquareDashed, Trash2, X } from "lucide-react"
 import { AlertsPanel } from "@/components/alerts-panel"
+import { FaceImagePicker } from "@/components/face-image-picker"
 import { ComputePanel } from "@/components/compute-panel"
 import { OverlaysPanel } from "@/components/overlays-panel"
 import { RecognitionPanel } from "@/components/recognition-panel"
@@ -22,6 +23,7 @@ import {
   type ToggleDef,
 } from "@/lib/esp-schema"
 import { OPEN_COMPUTE_EVENT, cameraBadge, useCompute } from "@/lib/compute"
+import { OPEN_AUTOTRACK_EVENT, OPEN_CROSSHAIR_EVENT } from "@/lib/autotrack"
 import type { CameraStatus, EspSettings, Zone } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -86,6 +88,25 @@ export function EspMenu({ open, onClose, status, models, settings, onUpdate, onT
     const onOpen = () => setCategoryState("compute")
     window.addEventListener(OPEN_COMPUTE_EVENT, onOpen)
     return () => window.removeEventListener(OPEN_COMPUTE_EVENT, onOpen)
+  }, [])
+  // auto-track chip / crosshair shortcut jump to their sections
+  const onCategoryChangeRef = useRef(onCategoryChange)
+  useEffect(() => {
+    onCategoryChangeRef.current = onCategoryChange
+  })
+  useEffect(() => {
+    const go = (id: string) => () => {
+      setCategoryState(id)
+      onCategoryChangeRef.current?.(id)
+    }
+    const toPtz = go("ptz")
+    const toOverlays = go("overlays")
+    window.addEventListener(OPEN_AUTOTRACK_EVENT, toPtz)
+    window.addEventListener(OPEN_CROSSHAIR_EVENT, toOverlays)
+    return () => {
+      window.removeEventListener(OPEN_AUTOTRACK_EVENT, toPtz)
+      window.removeEventListener(OPEN_CROSSHAIR_EVENT, toOverlays)
+    }
   }, [])
   const compute = useCompute()
   const computeBadge = cameraBadge(compute, status?.camera.id)
@@ -262,8 +283,14 @@ function CategoryBody({
               }}
             />
           </div>
+          {settings.face_blur_mode === "image" && <FaceImagePicker settings={settings} onUpdate={onUpdate} />}
           <SliderList
-            items={sliders(settings.face_blur_mode === "blackbox" ? ["face_zoom_scale"] : ["face_blur_strength", "face_zoom_scale"])}
+            items={sliders(
+              settings.face_blur_mode === "blackbox" ||
+                (settings.face_blur_mode === "image" && settings.face_blur_image_underlay === false)
+                ? ["face_zoom_scale"]
+                : ["face_blur_strength", "face_zoom_scale"],
+            )}
             settings={settings}
             onUpdate={onUpdate}
           />
@@ -331,7 +358,12 @@ function SegmentPicker({
   onChange: (v: string) => void
 }) {
   return (
-    <div role="radiogroup" aria-label={label} className="mb-3 grid grid-cols-3 gap-1 rounded-lg bg-background/60 p-1">
+    <div
+      role="radiogroup"
+      aria-label={label}
+      className="mb-3 grid gap-1 rounded-lg bg-background/60 p-1"
+      style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
+    >
       {options.map((b) => {
         const active = b.value === value
         return (

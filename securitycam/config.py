@@ -162,6 +162,9 @@ DEFAULT_ESP_SETTINGS = {
     "face_blur": False,
     "face_blur_strength": 70,
     "face_blur_mode": "blur",
+    "face_blur_image": "",          # id of a custom cover image (face_masks.py), "image" mode
+    "face_blur_image_fit": "cover",
+    "face_blur_image_underlay": True,   # blur under the image so transparent parts never show a face
     "face_zoom_scale": 2.0,
     "hand_skeleton": False,
     "confidence_threshold": 0.35,

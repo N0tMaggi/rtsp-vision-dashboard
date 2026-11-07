@@ -151,6 +151,22 @@ class PtzController:
             self._ensure_thread()
             self._cond.notify_all()
 
+    def track_velocity(self, x: Any, y: Any, zoom: Any = 0.0) -> tuple[float, float, float]:
+        """Raw continuous velocity for auto-track (no ``settings["speed"]`` scaling).
+
+        Shares the latest-velocity slot and the watchdog with ``move``; all zeros stops.
+        """
+        self._require_ready()
+        vx, vy, vz = _clamp(x, -1, 1), _clamp(y, -1, 1), _clamp(zoom, -1, 1)
+        if not self.caps.get("zoom"):
+            vz = 0.0
+        with self._cond:
+            self._motion = (vx, vy, vz)
+            self._last_move_at = self.clock()
+            self._ensure_thread()
+            self._cond.notify_all()
+        return vx, vy, vz
+
     def stop(self) -> None:
         self._require_ready()
         with self._cond:

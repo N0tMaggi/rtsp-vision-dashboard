@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils"
 import { useStageContext, type Notice } from "./stage-context"
 import { StageToolbar, type Tool } from "./stage-toolbar"
 import { StageVisuals } from "./stage-visuals"
+import { CrosshairOverlay } from "./crosshair-overlay"
 
 type Phase = "idle" | "connecting" | "live" | "error"
 
@@ -361,7 +362,7 @@ export function Stage(props: Props) {
       const k = e.key.toLowerCase()
       if (k === "v") onToolChange("select")
       else if (k === "z") onToolChange(tool === "zone" ? "select" : "zone")
-      else if (k === "t") onToolChange(tool === "tripwire" ? "select" : "tripwire")
+      else if (k === "t" && !e.shiftKey) onToolChange(tool === "tripwire" ? "select" : "tripwire")
       else if (k === "f" && lockedId !== null) onFollowChange(!follow)
       else if (k === "0") {
         onFollowChange(false)
@@ -486,6 +487,7 @@ export function Stage(props: Props) {
           {lineDraft && <TripwireDraft line={lineDraft} aspect={frameW && frameH ? frameW / frameH : 16 / 9} />}
         </svg>
       </motion.div>
+      {loaded && <CrosshairOverlay view={view} width={rect.width} height={rect.height} targets={aiOn ? list : []} lockedId={lockedId} />}
       {loaded && aiOn && (
         <StageVisuals
           view={view}
@@ -547,6 +549,7 @@ export function Stage(props: Props) {
           follow={follow}
           onFollowChange={onFollowChange}
           onUnlock={() => onLock(null)}
+          notify={props.notify}
         />
       )}
     </div>

@@ -282,11 +282,13 @@ def _num(data, key, default=0.0):
 @blueprint.route("/api/cameras/<camera_id>/ptz/move", methods=["POST"])
 def ptz_move(camera_id: str):
     data = _body()
+    ptz.autotrack.note_manual(camera_id)
     return _ptz_call(camera_id, lambda c: c.move(_num(data, "x"), _num(data, "y"), _num(data, "zoom")))
 
 
 @blueprint.route("/api/cameras/<camera_id>/ptz/stop", methods=["POST"])
 def ptz_stop(camera_id: str):
+    ptz.autotrack.note_manual(camera_id)
     return _ptz_call(camera_id, lambda c: c.stop())
 
 
@@ -295,6 +297,7 @@ def ptz_center(camera_id: str):
     data = _body()
     if not isinstance(data, dict) or not all(isinstance(data.get(k), (int, float)) and not isinstance(data.get(k), bool) for k in ("u", "v")):
         return _err("invalid_point")
+    ptz.autotrack.note_manual(camera_id)
 
     def go(c):
         x, y = c.center_on(data["u"], data["v"])
@@ -305,6 +308,7 @@ def ptz_center(camera_id: str):
 
 @blueprint.route("/api/cameras/<camera_id>/ptz/home", methods=["POST"])
 def ptz_home(camera_id: str):
+    ptz.autotrack.note_manual(camera_id)
     return _ptz_call(camera_id, lambda c: c.home())
 
 
@@ -319,6 +323,7 @@ def ptz_preset_save(camera_id: str):
 
 @blueprint.route("/api/cameras/<camera_id>/ptz/presets/<token>/goto", methods=["POST"])
 def ptz_preset_goto(camera_id: str, token: str):
+    ptz.autotrack.note_manual(camera_id)
     return _ptz_call(camera_id, lambda c: c.goto_preset(token))
 
 
@@ -399,3 +404,39 @@ def ptz_settings(camera_id: str):
     except ValueError:
         return _err("invalid_settings")
     return jsonify({"ok": True, "settings": settings})
+
+
+# ---------------------------------------------------------------------------- PTZ auto-track
+@blueprint.route("/api/cameras/<camera_id>/ptz/autotrack", methods=["PATCH"])
+def ptz_autotrack(camera_id: str):
+    if state.get_camera_state(camera_id) is None:
+        return _err("unknown_camera", 404)
+    try:
+        payload, outcome = ptz.autotrack.update_config(camera_id, _body())
+    except ValueError:
+        return _err("invalid_autotrack")
+    out = {"ok": True, "autotrack": payload}
+    if outcome is not None:
+        out["connect"] = outcome
+    return jsonify(out)
+
+
+@blueprint.route("/api/cameras/<camera_id>/ptz/autotrack/target", methods=["POST"])
+def ptz_autotrack_target(camera_id: str):
+    cs = state.get_camera_state(camera_id)
+    if cs is None:
+        return _err("unknown_camera", 404)
+    data = _body()
+    if not isinstance(data, dict) or "target_id" not in data:
+        return _err("invalid_target")
+    target_id = data["target_id"]
+    if target_id is not None and (isinstance(target_id, bool) or not isinstance(target_id, int) or target_id < 0):
+        return _err("invalid_target")
+    try:
+        payload, outcome = ptz.autotrack.set_target(camera_id, target_id)
+    except ptz.autotrack.TargetNotVisible:
+        return _err("target_not_visible", 409)
+    out = {"ok": True, "autotrack": payload, "locked": target_id if target_id is not None else cs.esp_locked}
+    if outcome is not None:
+        out["connect"] = outcome
+    return jsonify(out)
