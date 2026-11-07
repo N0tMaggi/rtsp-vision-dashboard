@@ -35,7 +35,7 @@ FILES = {
     "overlay.png": "image/png",
     "meta.json": "application/json",
 }
-ACTIVE = ("queued", "downloading", "loading", "running")
+ACTIVE = ("queued", "downloading", "loading", "running", "saving")
 
 
 @dataclass
@@ -111,16 +111,23 @@ class JobManager:
 
     # ------------------------------------------------------------------ submit / status
     def submit(self, camera_state, opts: dict[str, Any]) -> dict[str, Any]:
-        cap = capture_frame(camera_state, opts["region"], opts.get("include_overlay", False))
+        """Capture (or reuse the frame of ``source_job``) and enqueue. Raises EnhanceInputError."""
+        if opts.get("source_job"):
+            cap, opts = self._reuse(opts)
+        else:
+            cap = capture_frame(camera_state, opts["region"], opts.get("include_overlay", False))
         spec = models.CATALOG[opts["model"]]
         out_w, out_h = cap.crop.shape[1] * opts["scale"], cap.crop.shape[0] * opts["scale"]
         if out_w * out_h > conf.MAX_OUTPUT_MP * 1_000_000:
             raise EnhanceInputError("region_too_large")
         job_id = secrets.token_hex(10)
+        cam_id = opts.get("_camera_id") or camera_state.camera_id
+        cam_label = opts.get("_camera_label") or getattr(camera_state, "label", camera_state.camera_id)
         meta = {
             "id": job_id,
-            "camera_id": camera_state.camera_id,
-            "camera_label": getattr(camera_state, "label", camera_state.camera_id),
+            "source_job": opts.get("source_job"),
+            "camera_id": cam_id,
+            "camera_label": cam_label,
             "created_at": round(time.time(), 3),
             "status": "queued",
             "progress": 0.0,
@@ -150,6 +157,21 @@ class JobManager:
             self._ensure_worker()
             self._cond.notify_all()
             return self._payload(job)
+
+    def _reuse(self, opts: dict[str, Any]) -> tuple[Capture, dict[str, Any]]:
+        """Same frame region as an earlier job (compare models/scales on identical pixels)."""
+        src_id = opts["source_job"]
+        meta = self._read_meta(src_id)
+        path = self.file_path(src_id, "original.png")
+        if meta is None or path is None:
+            raise EnhanceInputError("unknown_source_job", 404)
+        crop = cv2.imread(str(path), cv2.IMREAD_COLOR)
+        if crop is None:
+            raise EnhanceInputError("unknown_source_job", 404)
+        cap = Capture(crop, tuple(meta["frame_size"]), tuple(meta["region_px"]), dict(meta["source"]))
+        opts = dict(opts, region=tuple(meta["region"]), _camera_id=meta["camera_id"],
+                    _camera_label=meta["camera_label"])
+        return cap, opts
 
     def get(self, job_id: str) -> dict[str, Any] | None:
         if not valid_job_id(job_id):
@@ -354,6 +376,7 @@ class JobManager:
             self._discard(job)
             return
 
+        meta["status"] = "saving"          # PNG encoding of a large result takes a moment
         spec = res.model
         meta["model"] = _model_meta(spec)
         meta["ai_enhanced"] = spec.ai

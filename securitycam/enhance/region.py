@@ -91,7 +91,11 @@ def parse_options(data: Any, model_ids: tuple[str, ...], default_model: str) -> 
     overlay = data.get("include_overlay", False)
     if not isinstance(overlay, bool):
         raise EnhanceInputError("invalid_overlay")
+    source_job = data.get("source_job")
+    if source_job is not None and not valid_job_id(source_job):
+        raise EnhanceInputError("invalid_source_job")
     return {
+        "source_job": source_job,
         "region": region,
         "model": model,
         "scale": int(scale),

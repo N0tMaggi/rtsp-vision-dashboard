@@ -33,7 +33,7 @@ _PNG_SIG = b"\x89PNG\r\n\x1a\n"
 
 
 def band_height(width: int) -> int:
-    return int(min(96, max(30, round(width / 26))))
+    return int(min(160, max(30, round(width / 26))))
 
 
 def band_text(model_label: str, scale: int, ai: bool = True) -> str:

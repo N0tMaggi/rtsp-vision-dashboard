@@ -223,6 +223,23 @@ class Api(unittest.TestCase):
         self.assertEqual(self.client.get(f"/api/enhance/{done['id']}").status_code, 404)
         self.assertFalse((conf.ENHANCED_DIR / done["id"]).exists())
 
+    def test_rerun_on_same_frame(self):
+        first = self.start({"region": [0.25, 0.25, 0.75, 0.75], "model": "lanczos", "scale": 2}).get_json()["job"]
+        first = self.wait(first["id"])
+        with self.cs.frame_lock:
+            self.cs.latest_frame = np.zeros((720, 1280, 3), np.uint8)    # the live picture moved on
+        r = self.start({"source_job": first["id"], "region": [0, 0, 1, 1], "scale": 4})
+        self.assertEqual(r.status_code, 202, r.get_json())
+        second = self.wait(r.get_json()["job"]["id"])
+        self.assertEqual(second["source_job"], first["id"])
+        self.assertEqual(second["region_px"], [320, 180, 960, 540])
+        pixels = [cv2.imdecode(np.frombuffer(self.fetch(j["urls"]["original"]), np.uint8), cv2.IMREAD_COLOR)
+                  for j in (first, second)]
+        self.assertTrue(np.array_equal(pixels[0], pixels[1]))
+        self.assertTrue(np.array_equal(pixels[1], test_frame()[180:540, 320:960]))
+        self.assertEqual(self.start({"source_job": "0" * 20}).status_code, 404)
+        self.assertEqual(self.start({"source_job": "../x"}).status_code, 400)
+
     def test_fallback_marks_no_ai(self):
         with mock.patch.object(jobs.manager, "_enhance", models.enhance), \
              mock.patch.object(deps, "asset_path", return_value=None), \
