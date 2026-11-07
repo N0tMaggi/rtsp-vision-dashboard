@@ -52,6 +52,8 @@ class RecogSettings:
     color_pet: Tuple[int, int, int]
     color_known: Tuple[int, int, int]
     color_unknown: Tuple[int, int, int]
+    face_auto_ids: bool = True            # cluster unknown faces into persistent "Face #n" identities
+    face_cluster_threshold: float = 0.45  # SFace cosine needed to join an unknown identity
 
     @property
     def any_worker_feature(self) -> bool:
@@ -78,6 +80,8 @@ class RecogSettings:
             color_pet=col("color_pet", (67, 159, 255)),
             color_known=col("color_known", (161, 224, 126)),
             color_unknown=col("color_unknown", (90, 90, 255)),
+            face_auto_ids=_b(raw, "face_auto_ids"),
+            face_cluster_threshold=_f(raw, "face_cluster_threshold", 0.3, 0.8),
         )
 
 
@@ -90,6 +94,8 @@ class FaceHit:
     person_id: Optional[str]
     score: float
     recognizable: bool                   # big enough for a meaningful embedding
+    face_uid: Optional[int] = None       # unknown face identity ("Face #n"), see unknown_faces.py
+    embedding: Any = field(default=None, repr=False, compare=False)   # SFace feature (worker only)
 
 
 @dataclass
@@ -110,6 +116,8 @@ class TrackInfo:
     plate_conf: float = 0.0
     last_plate_try: float = 0.0
     last_seen: float = 0.0
+    face_uid: Optional[int] = None        # unknown face identity seen on this track
+    face_seen: float = 0.0                # monotonic time a face was last attributed to this track
 
 
 @dataclass
@@ -130,6 +138,7 @@ class RecogRuntime:
     tracker_cfg: Optional[str] = None
     model_ref: Any = None
     errors: Dict[str, str] = field(default_factory=dict)
+    track_epoch: int = 0                  # bumps whenever the tracker restarts its ids (tags.py)
 
 
 _runtimes: Dict[str, RecogRuntime] = {}

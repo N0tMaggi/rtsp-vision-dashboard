@@ -280,3 +280,6 @@ def engine_delete(model_name: str):
 from .platelog_api import blueprint as _platelog_blueprint  # noqa: E402  (/api/recognition/platelog)
 
 blueprint.register_blueprint(_platelog_blueprint)
+from .unknown_api import blueprint as _unknown_blueprint  # noqa: E402  (/api/recognition/unknown)
+
+blueprint.register_blueprint(_unknown_blueprint)

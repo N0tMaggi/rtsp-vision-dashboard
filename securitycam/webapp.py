@@ -208,6 +208,8 @@ def create_app() -> Flask:
     app.register_blueprint(videos_blueprint)
     from .compute.api import blueprint as compute_blueprint  # compute devices: which hardware runs which workload
     app.register_blueprint(compute_blueprint)
+    from .context_api import blueprint as context_blueprint  # right-click menu: tags, solo/hide, manual plates
+    app.register_blueprint(context_blueprint)
     return app
 
 

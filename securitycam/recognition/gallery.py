@@ -49,8 +49,11 @@ def _slug(name: str) -> str:
     return slug[:40] or "person"
 
 
+RESERVED_IDS = frozenset({"unknown"})     # data/faces/unknown/ holds the automatic face ids
+
+
 def _valid_id(person_id: str) -> bool:
-    return bool(re.fullmatch(r"[a-z0-9][a-z0-9-]{0,47}", person_id or ""))
+    return bool(re.fullmatch(r"[a-z0-9][a-z0-9-]{0,47}", person_id or "")) and person_id not in RESERVED_IDS
 
 
 def _person_dir(person_id: str) -> Path:
@@ -137,7 +140,7 @@ def add_sample(name: str, embedding: np.ndarray, thumb: Optional[np.ndarray]) ->
         if person_id is None:
             base = _slug(name)
             person_id, n = base, 2
-            while (FACES_DIR / person_id).exists():
+            while (FACES_DIR / person_id).exists() or person_id in RESERVED_IDS:
                 person_id = f"{base}-{n}"
                 n += 1
             folder = FACES_DIR / person_id

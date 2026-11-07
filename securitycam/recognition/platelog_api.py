@@ -249,6 +249,39 @@ def log_clear():
     return jsonify({"ok": True, "deleted": platelog.get_log().clear(camera)})
 
 
+@blueprint.patch("/<entry_id>")
+def entry_set_plate(entry_id: str):
+    """Correct an entry's text (after "Re-Read" or by hand)."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return _err("invalid_input")
+    _entry_or_404(entry_id)
+    try:
+        e = platelog.get_log().set_plate(entry_id, data.get("plate"))
+    except ValueError as exc:
+        return _err(str(exc))
+    if e is None:
+        return _err("unknown_entry", 404)
+    return jsonify({"ok": True, "entry": _out(e, _labels())})
+
+
+@blueprint.post("/<entry_id>/reocr")
+def entry_reocr(entry_id: str):
+    """Run the multi-variant plate OCR again on the stored crop (does not change the entry)."""
+    import cv2
+
+    from .manual_plates import ManualPlateError, reread_crop
+
+    _entry_or_404(entry_id)
+    path = platelog.get_log().image_path(entry_id, "plate")
+    img = cv2.imread(str(path)) if path is not None else None
+    try:
+        out = reread_crop(img)
+    except ManualPlateError as exc:
+        return _err(exc.code, exc.status)
+    return _no_store(jsonify({"ok": True, **out}))
+
+
 @blueprint.get("/<entry_id>/<name>.jpg")
 def entry_image(entry_id: str, name: str):
     path = platelog.get_log().image_path(entry_id, name)

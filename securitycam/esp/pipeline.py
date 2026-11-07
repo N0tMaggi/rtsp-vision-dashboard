@@ -21,6 +21,7 @@ from .colors import parse_hex
 from .settings import EspSettings
 from ..recognition import overlay as recog
 from .. import anchor
+from .. import tags as tags_view
 
 _LOCK_INIT_GUARD = threading.Lock()
 _FADE_OPAQUE = 0.985
@@ -181,6 +182,15 @@ def draw_custom_esp(camera_state, frame, results, frame_ts: Optional[float] = No
             continue
     AR.draw_under(frame, alert_info, zones, st, camera_state.esp_settings)
 
+    # ---- tags + solo / hidden (visual only: zones above and alarms counted everything) --
+    vc = tags_view.prepare(camera_state, rc)
+    hidden_dets: List[Detection] = []
+    if vc is not None and (vc.solo or vc.hidden):
+        shown = []
+        for d in detections:
+            (shown if vc.visible(d) else hidden_dets).append(d)
+        detections = shown
+
     # ---- detections ----------------------------------------------------------------
     if detections:
         closest = _closest_to_center(detections, w, h) if s.highlight_center else None
@@ -248,6 +258,8 @@ def draw_custom_esp(camera_state, frame, results, frame_ts: Optional[float] = No
                 accent = pal.text if s.rgb_mode else pal.box
                 runs = recog.decorate_label(rc, det, R.build_label(det, s, pal.text), pal.text)
                 runs = visuals.loiter_runs(runs, det, vs, vstats, t_frame, pal.text)
+                if vc is not None:
+                    runs = vc.label_runs(det, runs, pal.text)
                 if i == lock_idx:
                     runs = [("LOCK", True, s.color_primary)] + ([("  ", False, pal.text)] if runs else []) + runs
                     accent = s.color_primary
@@ -271,6 +283,9 @@ def draw_custom_esp(camera_state, frame, results, frame_ts: Optional[float] = No
     AR.draw_over(frame, alert_info, st, camera_state.esp_settings, s.color_text, s.label_background, placed)
 
     # ---- faces / hands / inset -----------------------------------------------------
+    if hidden_dets:
+        faces = vc.filter_faces(faces, detections, hidden_dets)
+        rc.faces = [f for f in rc.faces if vc.filter_faces([recog._scaled(f.box, rc.k)], detections, hidden_dets)]
     if recog.draw_faces(rc, frame, faces, s, st, placed):
         pass  # known faces: names / UNKNOWN drawn by the recognition overlay
     elif s.face_boxes and faces:

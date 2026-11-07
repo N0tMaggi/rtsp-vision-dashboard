@@ -100,7 +100,9 @@ def targets_payload(camera_state) -> dict[str, Any]:
         fov_h, fov_v = view.lens.effective_fov(view.pose.zoom)
         out["pose"] = {**view.pose.as_dict(), "fov_h": round(fov_h, 3), "fov_v": round(fov_v, 3),
                        "moving": view.speed > 0.35}
-    return out
+    from .tags import decorate_payload   # tags, identity, solo / hidden (additive fields)
+
+    return decorate_payload(camera_state, out)
 
 
 def set_lock(camera_state, target_id: Optional[int]) -> bool:
