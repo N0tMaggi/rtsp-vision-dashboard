@@ -37,5 +37,19 @@ if [ "${SECURITYCAM_INSTALL_TENSORRT:-1}" != "0" ]; then
   fi
 fi
 
+# OpenVINO for the Intel NPU (optional, Compute tab). Installed automatically only
+# when an Intel NPU is found; nothing changes unless you pick a device in the
+# Compute tab. Skip with SECURITYCAM_INSTALL_OPENVINO=0.
+if [ "${SECURITYCAM_INSTALL_OPENVINO:-1}" != "0" ]; then
+  if [ -e /dev/accel/accel0 ] || (lsmod 2>/dev/null | grep -q intel_vpu); then
+    if python -c "import openvino" >/dev/null 2>&1; then
+      echo "[SETUP] OpenVINO already installed."
+    else
+      echo "[SETUP] Intel NPU found - installing OpenVINO (optional, for the Compute tab)..."
+      python -m pip install openvino || echo "[WARN] OpenVINO install failed - Intel NPU/GPU stay unavailable, everything else works."
+    fi
+  fi
+fi
+
 echo "[RUN] Starting SecurityCam..."
 python main.py

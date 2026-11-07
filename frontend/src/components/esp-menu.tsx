@@ -1,7 +1,8 @@
-import { useState, type ComponentType, type ReactNode } from "react"
+import { useEffect, useState, type ComponentType, type ReactNode } from "react"
 import { AnimatePresence, motion } from "motion/react"
-import { Box, Fingerprint, Palette, Radar, Route, ScanFace, Siren, SquareDashed, Trash2, X } from "lucide-react"
+import { Box, Fingerprint, Microchip, Palette, Radar, Route, ScanFace, Siren, SquareDashed, Trash2, X } from "lucide-react"
 import { AlertsPanel } from "@/components/alerts-panel"
+import { ComputePanel } from "@/components/compute-panel"
 import { OverlaysPanel } from "@/components/overlays-panel"
 import { RecognitionPanel } from "@/components/recognition-panel"
 import { ModelPicker } from "@/components/model-picker"
@@ -20,6 +21,7 @@ import {
   type SliderDef,
   type ToggleDef,
 } from "@/lib/esp-schema"
+import { OPEN_COMPUTE_EVENT, cameraBadge, useCompute } from "@/lib/compute"
 import type { CameraStatus, EspSettings, Zone } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -34,6 +36,7 @@ const CATEGORIES = [
   { id: "overlays", label: "Overlays", icon: Radar },
   { id: "recognition", label: "Recognition", icon: Fingerprint },
   { id: "style", label: "Colors", icon: Palette },
+  { id: "compute", label: "Compute", icon: Microchip },
 ] as const
 type CategoryId = (typeof CATEGORIES)[number]["id"]
 
@@ -78,6 +81,14 @@ export function EspMenu({ open, onClose, status, models, settings, onUpdate, onT
     setCategoryState(id)
     onCategoryChange?.(id)
   }
+  // compute devices: open the tab from the header chip, show the non-default device on the model button
+  useEffect(() => {
+    const onOpen = () => setCategoryState("compute")
+    window.addEventListener(OPEN_COMPUTE_EVENT, onOpen)
+    return () => window.removeEventListener(OPEN_COMPUTE_EVENT, onOpen)
+  }, [])
+  const compute = useCompute()
+  const computeBadge = cameraBadge(compute, status?.camera.id)
   const allCategories = [...CATEGORIES, ...(extraCategories ?? [])]
   const extra = extraCategories?.find((c) => c.id === category)
   const offline = !status
@@ -124,6 +135,7 @@ export function EspMenu({ open, onClose, status, models, settings, onUpdate, onT
               onChange={onModelChange}
               disabled={!aiAvailable || busy}
               cuda={status?.cuda_available ?? false}
+              device={computeBadge}
             />
             <button
               type="button"
@@ -161,6 +173,9 @@ export function EspMenu({ open, onClose, status, models, settings, onUpdate, onT
                           />
                         )}
                         <Icon className="relative size-[18px]" />
+                        {id === "compute" && compute?.non_default && (
+                          <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-primary" aria-label="Not on Auto" />
+                        )}
                       </button>
                     </TooltipTrigger>
                     <TooltipContent side="left">{label}</TooltipContent>
@@ -285,6 +300,8 @@ function CategoryBody({
           onUpdate={onUpdate}
         />
       )
+    case "compute":
+      return <ComputePanel cameraId={cameraId} />
     case "style":
       return (
         <>

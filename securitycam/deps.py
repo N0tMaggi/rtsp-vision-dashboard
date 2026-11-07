@@ -321,7 +321,9 @@ def get_yolo_model(camera_state):
         print(f"[YOLO] Loading model {model_source} (DEVICE={state.DEVICE})...")
         # recognition package: prefers a TensorRT .engine for this model when one was built
         from .recognition.engines import load_model as _load_model_or_engine
-        camera_state.yolo_model = _load_model_or_engine(name, model_source)
+        from .compute import load_yolo as _load_on_compute_device   # None unless a non-auto device is ready
+        model = _load_on_compute_device(camera_state, name)
+        camera_state.yolo_model = model if model is not None else _load_model_or_engine(name, model_source)
         _adopt_stray_weights(name)
         print("[YOLO] Model ready:", name)
     return camera_state.yolo_model

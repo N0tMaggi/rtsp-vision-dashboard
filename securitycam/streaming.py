@@ -14,7 +14,7 @@ import time
 
 import cv2
 
-from . import capture_env, config, deps, recognition, state
+from . import capture_env, compute, config, deps, recognition, state
 from .alerts.clips import record_frame
 from .esp import draw_custom_esp
 from .ptz import pose as ptz_pose
@@ -61,10 +61,10 @@ def yolo_worker(camera_state):
             current_conf = camera_state.esp_settings.get("confidence_threshold", 0.35)
 
             if do_track:
-                results = model.track(current_frame_ref, persist=True, verbose=False, device=state.DEVICE, conf=current_conf,
+                results = model.track(current_frame_ref, persist=True, verbose=False, device=compute.yolo_device(camera_state, model), conf=current_conf,
                                       **recognition.track_kwargs(camera_state, model))
             else:
-                results = model(current_frame_ref, verbose=False, device=state.DEVICE, conf=current_conf)
+                results = model(current_frame_ref, verbose=False, device=compute.yolo_device(camera_state, model), conf=current_conf)
             last_frame_ref = current_frame_ref
             if epoch != camera_state.source_epoch:
                 continue
@@ -82,7 +82,9 @@ def yolo_worker(camera_state):
 
         except RuntimeError as exc:
             msg = str(exc)
-            if ("no kernel image is available" in msg or "CUDA error" in msg) and state.DEVICE.startswith("cuda"):
+            if compute.on_yolo_error(camera_state, exc):
+                pass    # a non-auto compute device failed: the camera is back on Auto
+            elif ("no kernel image is available" in msg or "CUDA error" in msg) and state.DEVICE.startswith("cuda"):
                 print(f"[YOLO Worker] CUDA crash for {camera_state.camera_id} -> fallback CPU")
                 state.DEVICE = "cpu"
                 state.CUDA_AVAILABLE = False
@@ -91,8 +93,9 @@ def yolo_worker(camera_state):
                 print(f"[YOLO Worker] Error for {camera_state.camera_id}: {exc}")
             time.sleep(1)
 
-        except Exception:
+        except Exception as exc:
             # Ignore transient inference errors and continue (without spinning).
+            compute.on_yolo_error(camera_state, exc)
             time.sleep(0.05)
 
 
