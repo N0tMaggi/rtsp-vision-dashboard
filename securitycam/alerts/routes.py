@@ -193,6 +193,11 @@ def events_list():
         limit = max(1, min(500, int(request.args.get("limit", 200))))
     except ValueError:
         return jsonify({"ok": False, "error": "invalid_query"}), 400
+    return _no_store(jsonify(events_payload(camera_id, since, limit)))
+
+
+def events_payload(camera_id: str | None = None, since: float | None = None, limit: int = 200) -> dict:
+    """Event list + currently active alarms (``GET /api/events`` and the live stream)."""
     items = [_event_out(m) for m in events.list(camera_id, since, limit)]
     active = []
     for cs in state.list_camera_states():
@@ -201,7 +206,7 @@ def events_list():
         eng = engine.peek(cs.camera_id)
         if eng is not None:
             active += [dict(a, camera=cs.camera_id) for a in eng.active()]
-    return _no_store(jsonify({"events": items, "active": active, "now": time.time()}))
+    return {"events": items, "active": active, "now": time.time()}
 
 
 @blueprint.route("/api/events/<camera_id>/<event_id>", methods=["GET"])
