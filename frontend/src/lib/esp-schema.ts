@@ -55,6 +55,7 @@ export const SLIDERS: SliderDef[] = [
   { key: "confidence_threshold", label: "Confidence", min: 0.05, max: 1, step: 0.05, format: pct },
   { key: "line_thickness", label: "Line", min: 1, max: 6, step: 1, format: (v) => `${Math.round(v)}px` },
   { key: "chams_opacity", label: "Chams Opacity", min: 0, max: 1, step: 0.05, format: pct },
+  { key: "outline_glow", label: "Outline Glow", min: 0, max: 24, step: 1, format: (v) => (v > 0 ? `${Math.round(v)}px` : "Off") },
   { key: "face_zoom_scale", label: "Face Zoom", min: 1, max: 4, step: 0.25, format: (v) => `${v.toFixed(2)}x` },
   { key: "face_blur_strength", label: "Blur Strength", min: 1, max: 100, step: 1, format: (v) => `${Math.round(v)}%` },
   { key: "smoothing", label: "Smoothing", min: 0, max: 1, step: 0.05, format: pct },
@@ -87,4 +88,13 @@ export const BOX_STYLES = [
   { value: "full", label: "Full" },
   { value: "corner", label: "Corner" },
   { value: "3d", label: "3D" },
+] as const
+
+// --- silhouette chams (securitycam/esp/silhouette.py) ---
+export const CHAMS_MODES = [
+  { value: "box", label: "Box" },
+  { value: "silhouette", label: "Body" },
+  { value: "outline", label: "Outline" },
+  { value: "silhouette_outline", label: "Both" },
+  { value: "xray", label: "X-Ray" },
 ] as const

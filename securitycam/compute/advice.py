@@ -56,6 +56,8 @@ def _ms(workload: str, dev: str, model: Optional[str]) -> tuple[Optional[float],
         ref = YOLO_REF[size]
         if model and "pose" in model:
             ref = {k: v * 1.08 for k, v in ref.items()}
+        elif model and "-seg" in model:     # mask head + proto upsampling
+            ref = {k: v * 1.15 for k, v in ref.items()}
         v = ref.get(dev)
         if v is not None and model and not model.startswith("yolo26"):
             v *= 1.15     # older families are a little slower on every device

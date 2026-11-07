@@ -9,6 +9,8 @@ from typing import Any, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from . import masks as seg_masks
+
 KEYPOINT_CONF_THRESHOLD = 0.5
 VELOCITY_WINDOW = 5              # history samples used for velocity estimation
 
@@ -36,6 +38,8 @@ class Detection:
     vy: float = 0.0
     track_key: Any = None
     ref_height: int = 0                       # last observed box height (stable between inferences)
+    # silhouette chams (masks.py): box-relative uint8 alpha crop from a Segment model, else None
+    mask: Optional[np.ndarray] = None
 
     @property
     def width(self) -> int:
@@ -94,6 +98,9 @@ def extract_detections(results: Any, settings) -> List[Detection]:
         if getattr(kp, "conf", None) is not None:
             kp_conf = _to_numpy(kp.conf)
 
+    # Segment models: masks are taken like keypoints (one small crop per kept box, once per result)
+    mask_src = seg_masks.prepare(r)
+
     detections: List[Detection] = []
     for i in range(len(xyxy)):
         coords = xyxy[i]
@@ -126,6 +133,7 @@ def extract_detections(results: Any, settings) -> List[Detection]:
             conf=float(confs[i]),
             keypoints=keypoints,
             kp_visible=visible,
+            mask=seg_masks.crop(mask_src, i, coords) if mask_src is not None else None,
         ))
     return detections
 

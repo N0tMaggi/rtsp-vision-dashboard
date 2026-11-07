@@ -4,6 +4,7 @@ import { Box, Fingerprint, Microchip, Palette, Radar, Route, ScanFace, Siren, Sq
 import { AlertsPanel } from "@/components/alerts-panel"
 import { FaceImagePicker } from "@/components/face-image-picker"
 import { ComputePanel } from "@/components/compute-panel"
+import { ChamsPanel } from "@/components/chams-panel"
 import { OverlaysPanel } from "@/components/overlays-panel"
 import { RecognitionPanel } from "@/components/recognition-panel"
 import { ModelPicker } from "@/components/model-picker"
@@ -218,7 +219,8 @@ export function EspMenu({ open, onClose, status, models, settings, onUpdate, onT
                 >
                   <h2 className="mb-3 text-base font-medium">{allCategories.find((c) => c.id === category)?.label}</h2>
                   {extra ? extra.body : <CategoryBody category={category as CategoryId} settings={settings} onUpdate={onUpdate} zones={zones}
-                    cameraId={status?.camera.id ?? null} onDrawTripwire={onDrawTripwire} status={status} />}
+                    cameraId={status?.camera.id ?? null} onDrawTripwire={onDrawTripwire} status={status}
+                    models={models} onModelChange={onModelChange} busy={busy} />}
                 </motion.div>
               </AnimatePresence>
             </div>
@@ -241,6 +243,9 @@ function CategoryBody({
   cameraId,
   onDrawTripwire,
   status,
+  models,
+  onModelChange,
+  busy,
 }: {
   category: CategoryId
   settings: EspSettings
@@ -249,6 +254,10 @@ function CategoryBody({
   cameraId: string | null
   onDrawTripwire?: () => void
   status: CameraStatus | null
+  // silhouette chams: "Switch to YOLO26 Seg"
+  models?: string[]
+  onModelChange?: (model: string) => void
+  busy?: boolean
 }) {
   const sliders = (keys: string[]) => SLIDERS.filter((s) => keys.includes(s.key))
   switch (category) {
@@ -264,6 +273,9 @@ function CategoryBody({
           />
           <ToggleList items={VISUAL_TOGGLES} settings={settings} onUpdate={onUpdate} />
           <SliderList items={sliders(["confidence_threshold", "line_thickness", "chams_opacity"])} settings={settings} onUpdate={onUpdate} />
+          {/* silhouette chams (body masks from a Segment model) */}
+          <ChamsPanel settings={settings} onUpdate={onUpdate} models={models ?? []} model={status?.yolo_model ?? null}
+            cuda={status?.cuda_available ?? false} onModelChange={onModelChange} busy={busy} />
         </>
       )
     case "face":

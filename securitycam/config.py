@@ -126,6 +126,15 @@ AVAILABLE_MODELS = (
     "yolo11m.pt",
     "yolo11m-pose.pt",
     "rtdetr-l.pt",
+    # --- instance segmentation: body outlines for Silhouette chams (securitycam/esp/silhouette.py) ---
+    "yolo26n-seg.pt",
+    "yolo26s-seg.pt",
+    "yolo26m-seg.pt",
+    "yolo26l-seg.pt",
+    "yolo26x-seg.pt",
+    "yolo11n-seg.pt",
+    "yolo11s-seg.pt",
+    "yolo11m-seg.pt",
 )
 
 YOLO_MODEL_NAME = os.getenv("SECURITYCAM_YOLO_MODEL", "yolo26s.pt").strip() or "yolo26s.pt"
@@ -141,6 +150,9 @@ DEFAULT_ESP_SETTINGS = {
     "chams": False,
     "chams_opacity": 0.35,
     "chams_color": "#ffd21f",
+    # --- silhouette chams (securitycam/esp/silhouette.py): body masks from a Segment model ---
+    "chams_mode": "box",               # box | silhouette | outline | silhouette_outline | xray
+    "outline_glow": 8,                 # glow width around silhouette outlines, px at 720p (0 = off)
     "class_colors": False,
     "person_only": False,
     "highlight_center": False,

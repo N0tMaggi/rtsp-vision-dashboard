@@ -9,6 +9,7 @@ from .. import config
 from .colors import BGR, DEFAULT_BGR, WHITE, parse_hex
 
 BOX_STYLES = ("full", "corner", "3d")
+CHAMS_MODES = ("box", "silhouette", "outline", "silhouette_outline", "xray")   # silhouette chams
 
 # Legacy setting names still accepted when reading a settings mapping.
 SETTING_ALIASES = {"gay_mode": "rgb_mode"}
@@ -119,6 +120,9 @@ class EspSettings:
     color_face: BGR
     color_hand: BGR
     chams_color: BGR
+    # --- silhouette chams (silhouette.py); defaults keep duck-typed constructions working ---
+    chams_mode: str = "box"
+    outline_glow: int = 8
 
     # ---- derived flags -------------------------------------------------
     @property
@@ -206,4 +210,7 @@ class EspSettings:
             color_face=_color(d.get("color_face"), secondary),
             color_hand=_color(d.get("color_hand"), primary),
             chams_color=_color(d.get("chams_color"), primary),
+            # silhouette chams
+            chams_mode=d.get("chams_mode") if d.get("chams_mode") in CHAMS_MODES else "box",
+            outline_glow=_int(d.get("outline_glow"), 8, 0, 24),
         )

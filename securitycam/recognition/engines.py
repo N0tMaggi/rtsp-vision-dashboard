@@ -36,15 +36,20 @@ def model_info(name: str) -> Dict[str, Any]:
     else:
         family = "Other"
     pose = stem.endswith("-pose")
-    size = stem.replace("-pose", "")[-1:] if family != "RT-DETR" else stem.split("-")[-1]
+    seg = stem.endswith("-seg")     # instance segmentation: body masks for Silhouette chams
+    base = stem.removesuffix("-pose").removesuffix("-seg")
+    size = base[-1:] if family != "RT-DETR" else stem.split("-")[-1]
+    task = "pose" if pose else "segment" if seg else "detect"
+    suffix = " Pose" if pose else " Seg" if seg else ""
     return {
         "name": name,
         "family": family,
-        "task": "pose" if pose else "detect",
+        "task": task,
         "size": size.upper(),
-        "label": f"{family} {size.upper()}{' Pose' if pose else ''}",
-        "tracking": True,           # Ultralytics tracks any detect/pose model, RT-DETR included
+        "label": f"{family} {size.upper()}{suffix}",
+        "tracking": True,           # Ultralytics tracks any detect/pose/segment model, RT-DETR included
         "keypoints": pose,
+        "masks": seg,
     }
 
 

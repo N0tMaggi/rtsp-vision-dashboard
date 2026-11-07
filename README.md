@@ -502,7 +502,7 @@ The dashboard includes the complete advanced ESP feature set.
 - Face boxes
 - Face zoom inset
 - Hand skeleton
-- Chams
+- Chams (style `chams_mode`: `box`, or with a Segment model real body silhouettes: `silhouette`, `outline`, `silhouette_outline`, `xray`; outline glow width `outline_glow`)
 - Face blur
 - Box fill
 - Class colors
@@ -883,15 +883,16 @@ current zoom viewport), or dispatch `new CustomEvent("securitycam:open-enhance",
 
 Pick a model in the ESP menu header (Model picker: family, task, size). Available families:
 
-| Family | Detect | Pose | Notes |
-|---|---|---|---|
-| **YOLO26** (recommended) | `yolo26n/s/m/l/x.pt` | `yolo26n/s/m/l/x-pose.pt` | Newest Ultralytics generation, NMS-free, better on small/far objects |
-| YOLO11 | `yolo11n/s/m.pt` | `yolo11n/s/m-pose.pt` | Previous generation |
-| YOLOv8 | `yolov8n/s/m/l/x.pt` | `yolov8n/s/m/l/x-pose.pt` | Classic, widely used |
-| RT-DETR | `rtdetr-l.pt` | – | Transformer detector, slower |
+| Family | Detect | Pose | Segment | Notes |
+|---|---|---|---|---|
+| **YOLO26** (recommended) | `yolo26n/s/m/l/x.pt` | `yolo26n/s/m/l/x-pose.pt` | `yolo26n/s/m/l/x-seg.pt` | Newest Ultralytics generation, NMS-free, better on small/far objects |
+| YOLO11 | `yolo11n/s/m.pt` | `yolo11n/s/m-pose.pt` | `yolo11n/s/m-seg.pt` | Previous generation |
+| YOLOv8 | `yolov8n/s/m/l/x.pt` | `yolov8n/s/m/l/x-pose.pt` | – | Classic, widely used |
+| RT-DETR | `rtdetr-l.pt` | – | – | Transformer detector, slower |
 
 Recommendations: `yolo26m.pt` on an NVIDIA GPU (on an RTX 5080 about 16 ms per 1080p frame vs. 13 ms for `yolov8n.pt`), `yolo26n.pt` on CPU-only machines.
 **Pose models only detect people** (with skeleton keypoints) - use a Detect model for cars, plates and other objects.
+**Segment models** detect all classes and add a body mask per object: it drives the Silhouette chams (body fill, glowing outline, X-ray) and glides with the person between inferences. One model can't deliver keypoints and masks at once, so skeleton / head / pose aim points need a Pose model; without a Segment model the chams fall back to boxes.
 Weights download into `models/` on first use; "Build for GPU" turns any of them into a TensorRT engine.
 
 Model loading behavior:

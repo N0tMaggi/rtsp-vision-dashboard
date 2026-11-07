@@ -13,6 +13,7 @@ from . import alerts_render as AR
 from . import anchor_render
 from . import motion
 from . import renderers as R
+from . import silhouette   # silhouette chams (body masks from Segment models)
 from . import visuals
 from .colors import ANTHRACITE, DetectionColors, center_dot_color, mix, resolve_detection_colors
 from .detections import Detection, extract_detections
@@ -213,11 +214,15 @@ def draw_custom_esp(camera_state, frame, results, frame_ts: Optional[float] = No
             ]
 
         # Pass 1: translucent fills, so later outlines/labels stay crisp.
-        if s.boxes and (s.fill_box or s.chams):
+        # --- silhouette chams: chams_mode != "box" draws body masks (independent of Boxes) ---
+        sil = silhouette.uses_masks(s)
+        if sil:
+            silhouette.draw(frame, detections, palettes, s, st)
+        if s.boxes and (s.fill_box or (s.chams and not sil)):
             for det, pal in zip(detections, palettes):
                 if s.fill_box:
                     R.draw_fill(frame, det, pal.fill)
-                if s.chams:
+                if s.chams and not sil:
                     R.draw_chams(frame, det, s.chams_color, s.chams_opacity)
 
         draws_body = s.boxes or s.skeleton or s.head or closest is not None
