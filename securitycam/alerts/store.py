@@ -190,7 +190,8 @@ def _default_anchor(camera_id: str) -> Optional[dict]:
 
 
 def _empty_camera() -> dict:
-    return {"zone_rules": {}, "tripwires": [], "tripwire_seq": 0, "abandoned_notify": True}
+    return {"zone_rules": {}, "tripwires": [], "tripwire_seq": 0, "abandoned_notify": True,
+            "fall_notify": True}   # fall_notify: pose pack fall alarms
 
 
 _EMPTY = _empty_camera()
@@ -243,6 +244,7 @@ class AlertStore:
             seq = cam.get("tripwire_seq")
             c["tripwire_seq"] = seq if isinstance(seq, int) and seq >= 0 else len(c["tripwires"])
             c["abandoned_notify"] = bool(cam.get("abandoned_notify", True))
+            c["fall_notify"] = bool(cam.get("fall_notify", True))
             self._cams[cid] = c
         if migrated:
             self._save_locked()
@@ -346,13 +348,16 @@ class AlertStore:
             return True
 
     def set_options(self, camera_id: str, data: Any) -> dict:
-        if not isinstance(data, dict) or "abandoned_notify" not in data:
+        keys = ("abandoned_notify", "fall_notify")
+        if not isinstance(data, dict) or not any(k in data for k in keys):
             raise AlertInputError("invalid_options")
         with self._lock:
             cam = copy.deepcopy(self._cam_locked(camera_id))
-            cam["abandoned_notify"] = _bool(data, "abandoned_notify", True)
+            for k in keys:
+                if k in data:
+                    cam[k] = _bool(data, k, True)
             self._commit_locked(camera_id, cam)
-            return {"abandoned_notify": cam["abandoned_notify"]}
+            return {k: cam.get(k, True) for k in keys}
 
 
 store = AlertStore()
