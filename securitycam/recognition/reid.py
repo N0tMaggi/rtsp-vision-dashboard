@@ -50,7 +50,8 @@ MOTION_WEIGHT = 0.3          # how much a good position counts in the ranking
 MAX_SPEED_H = 3.0            # velocity cap in box heights per second
 EDGE_LOST_MARGIN = 0.03      # lost while touching a frame edge (fraction of the frame) ...
 EDGE_BACK_MARGIN = 0.08      # ... and back near the same edge within SPATIAL_MAX_GAP_S
-EDGE_SCORE = 0.3             # counts as a weak motion match
+EDGE_SCORE = 0.3             # counts as a weak motion match ...
+EDGE_SIM = 0.7               # ... and needs this much appearance similarity
 
 
 REID_FALLBACK_WEIGHTS = "yolo26n-cls.pt"
@@ -199,7 +200,12 @@ def _motion_score(lost: _Lost, box: Box, now: float, size: Optional[Tuple[int, i
         out_edges = _edges(lost.box, size, EDGE_LOST_MARGIN)
         if out_edges and out_edges & _edges(box, size, EDGE_BACK_MARGIN):
             near = _motion_score(lost, box, now, None)
-            return max(near or 0.0, EDGE_SCORE)
+            if near is not None:
+                return max(near, EDGE_SCORE)
+            h0, h1 = lost.box[3] - lost.box[1], box[3] - box[1]
+            if h0 > 0 and 0.5 <= h1 / h0 <= 2.0:      # same edge, similar size: weak match (EDGE_SIM applies)
+                return -EDGE_SCORE                     # negative = edge-only, see ReentryMatcher._claim
+            return None
     cx0, cy0, h0 = _center_h(lost.box)
     cx1, cy1, h1 = _center_h(box)
     g = min(gap, SPATIAL_PREDICT_MAX_S)
@@ -247,21 +253,33 @@ class ReentryMatcher:
     @staticmethod
     def _claim(st: _IdState, box: Box, cands, now: float, size: Optional[Tuple[int, int]] = None) -> Optional[int]:
         scored = []
+        sims: Dict[int, float] = {}
+        plausible = set()          # candidates that passed a gate (motion or full appearance)
         for cid, (_, lo) in cands.items():
             sim = max(similarity(st.desc, lo.desc), similarity_upper(st.desc, lo.desc))
+            sims[cid] = sim
             motion = _motion_score(lo, box, now, size)
+            if motion is not None and motion < 0:          # edge-only: needs more appearance evidence
+                motion = -motion if sim >= EDGE_SIM else None
             if motion is not None and sim >= SPATIAL_SIM:
                 scored.append((sim + MOTION_WEIGHT * motion, cid))
+                plausible.add(cid)
             elif sim >= REENTRY_SIM and st.seen <= CHECK_FIRST_N:
                 # appearance alone (came back somewhere else): only on the first observations,
                 # as before, so a longer claim window doesn't merge different people
                 scored.append((sim, cid))
+                plausible.add(cid)
         if not scored:
             return None
         scored.sort(reverse=True)
         if len(scored) > 1 and scored[0][0] - scored[1][0] < REENTRY_MARGIN:
             return None            # ambiguous: two people could be this one
-        return scored[0][1]
+        best = scored[0][1]
+        best_sim = sims[best]
+        if any(c != best and sims[c] >= best_sim - REENTRY_MARGIN and sims[c] >= SPATIAL_SIM
+               and c in plausible for c in sims):
+            return None            # another plausible candidate looks just as similar
+        return best
 
     def process(self, frame: np.ndarray, rows: List[Tuple[int, int, Box]],
                 now: Optional[float] = None) -> Dict[int, int]:
